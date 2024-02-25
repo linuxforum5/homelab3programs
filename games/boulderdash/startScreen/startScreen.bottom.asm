@@ -1,7 +1,7 @@
 START_TEXT1: EQU SCREEN + 21 * 64 + 3
 START_TEXT31: EQU SCREEN + 25 * 64
 START_TEXT32: EQU SCREEN + 43 + 25 * 64
-START_TEXT4: EQU SCREEN + 27 * 64 + 2
+START_TEXT4: EQU SCREEN + 27 * 64 + 6
 START_TEXT5: EQU SCREEN + 29 * 64 + 19
 START_TEXT9: EQU SCREEN + 31 * 64
 
@@ -70,7 +70,7 @@ BIG_PRINT_HL_DE:
 ; BOTTOM_TEXT1: DB "Boulder Dash Homelab III version. 2024", 0
 ;BOTTOM_TEXT3: DB "Select cave: A (A-T) Select level: 1 (1-5)", 0 ; ABCDEFGHIJKLMNOPQRST
 ; include 'startScreen/startScreen.ANIMTABLE.asm'
-BOTTOM_TEXT4: DB "Press FIRE or CR to start with joystick or keyboard /Q: quit@"
+BOTTOM_TEXT4: DB "Press FIRE or CR to start with joystick or keyboard@"
 BOTTOM_TEXT5: DB "Current high score: @"
 
 HOMELAB3DATA:
