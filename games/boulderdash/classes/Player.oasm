@@ -1,0 +1,193 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A játékos object asm kódja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+class Player extends PropertiesDirect {
+
+    DW shadow_pos_addr     ; A Cave inicializálja
+    DB in_game             ; 1, amíg játékban van, 0, ha befejezte, vagy meghalt
+    DB speed               ; A játékos sebessége, azaz mennyiidőnként mozdulhat el
+    DB move_impulse        ; Ha ez 1, akkor tolhat csak el követ, de akkor utána 0-ába vált. Ha 0, akkor előbb 1-re kell váltania. 1-re csak kőtolásnál válthat.
+    DB in_flash            ; Ha ez nem 0, akkor villog a játékos, még nem irányítható
+
+    public init( HL ) {
+        PUSH AF
+        this.shadow_pos_addr := HL
+        this.in_game := 1
+        this.move_impulse := 0
+        this.speed := PLAYER_SPEED;
+        this.in_flash := 25
+        POP AF
+    }
+
+    public check_speed_NZ() {
+        dec this.speed
+        if ( Z ) {
+            this.speed := PLAYER_SPEED
+            A := this.in_flash
+            if ( A != 0 ) { ; Még villog, nincs mozgás, Z=0
+                this.flash_tick( A )
+                XOR A
+            } else {
+                OR 1
+            }
+        } else {
+            XOR A   ; RETURN Z
+        }
+    }
+
+    public flash_tick( A ) {
+        DEC A
+        this.in_flash := A
+        HL := this.shadow_pos_addr
+        BIT 1, A
+        if ( NZ ) {
+            LD (HL), 0 ; OBJECT_SPACE_CHAR
+        } else {
+            LD (HL), OBJECT_PLAYER_CHAR
+        }
+    }
+
+    public move_player( A ) {
+        HL := this.shadow_pos_addr
+        PUSH HL
+        POP DE
+        BIT KEYBOARD_CURSOR_LEFT_BIT, A
+        this.move_left() if ( Z )
+        BIT KEYBOARD_CURSOR_RIGHT_BIT, A
+        this.move_right() if ( Z )
+        BIT KEYBOARD_CURSOR_UP_BIT, A
+        this.move_up() if ( Z )
+        BIT KEYBOARD_CURSOR_DOWN_BIT, A
+        this.move_down() if ( Z )
+    }
+
+    public kill() { ; Grafikus effekt it nem tartozik hozzá, az a robbanásnál van
+        HL := this.shadow_pos_addr
+        A := this.in_game
+        if ( A != 0 ) {
+            this.in_game := 0
+            dec GAME.live_counter
+        }
+    }
+
+    private next_cave( DE ) {
+        LD A, OBJECT_SPACE_CHAR
+        LD (DE), A
+        STATUS.addTimerToPoints()
+        inc GAME.cave  ; value in A
+        if ( A == 'T'-'A'+1 ) {
+            GAME.cave := 0 ; 'A'
+            inc GAME.level
+            if ( A == 6 ) {
+                GAME.level := 1
+            }
+        }
+        this.in_game := 0
+    }
+
+    private move_left() {
+        DEC HL
+        LD A, (HL)
+        if ( A == OBJECT_STONE_CHAR ) {
+            DEC HL
+            LD A, (HL)
+            INC HL
+            if ( A == OBJECT_SPACE_CHAR ) {
+                A := this.move_impulse
+                if ( A == 1 ) {
+                    STONEGRAVITY.move_left( HL )
+                    this.move_impulse := 0
+                } else {
+                    this.move_impulse := 1
+                }
+            } else {
+                this.move_impulse := 0
+            }
+        } else {
+            this.move_impulse := 0
+        }
+        this.move()
+    }
+
+    private move_right() {
+        INC HL
+        LD A, (HL)
+        if ( A == OBJECT_STONE_CHAR ) {
+            INC HL
+            LD A, (HL)
+            DEC HL
+            if ( A == OBJECT_SPACE_CHAR ) {
+                A := this.move_impulse
+                if ( A == 1 ) {
+                    STONEGRAVITY.move_right( HL )
+                    this.move_impulse := 0
+                } else {
+                    this.move_impulse := 1
+                }
+            } else {
+                this.move_impulse := 0
+            }
+        } else {
+            this.move_impulse := 0
+        }
+        this.move()
+    }
+
+    private move_up() {
+        LD BC, -SHADOW_LINE_LENGTH
+        ADD HL, BC
+        this.move_impulse := 0
+        this.move()
+    }
+
+    private move_down() {
+        LD BC, SHADOW_LINE_LENGTH
+        ADD HL, BC
+        this.move_impulse := 0
+        this.move()
+    }
+
+    private move() {
+        LD A, (HL)
+        if ( A == OBJECT_DIRT_CHAR ) {
+            this.move_ok( DE, HL )
+            CALL LEPESHANG
+        } else if ( A == OBJECT_SPACE_CHAR ) {
+            this.move_ok( DE, HL )
+        } else if ( A == OBJECT_DIAMOND1_CHAR ) {
+            this.get_diamond( DE, HL )
+        } else if ( A == OBJECT_DIAMOND2_CHAR ) {
+            this.get_diamond( DE, HL )
+        } else if ( A == OBJECT_OPENED_DOOR_CHAR ) {
+            this.next_cave( DE )
+        } else if ( A == OBJECT_BUTTERFLY1_CHAR ) {
+            ROBBANAS.butterfly_kill_player( HL )
+        } else if ( A == OBJECT_BUTTERFLY2_CHAR ) {
+            ROBBANAS.butterfly_kill_player( HL )
+        } else if ( A == OBJECT_FIREFLY1_CHAR ) {
+            ROBBANAS.firefly_kill_player( HL )
+        } else if ( A == OBJECT_FIREFLY2_CHAR ) {
+            ROBBANAS.firefly_kill_player( HL )
+        }
+        POP BC ; Kivesszük a veremben lévő két RET címet, így rögtön a .move-ot hívóhoz térhewtünk vissza
+        POP BC ; mellőzve ezzel, hogy több billentyűlenyomást is kezeljünk egyszerre, vagyis nem kell garantlni, hogy A nem változik
+    }
+
+    private get_diamond( DE, HL ) {
+        this.move_ok( DE, HL )            ; HL-ben a címe
+        DIAMONDGRAVITY.remove( HL )
+        LD HL, 0x0660
+        CALL ROM_BEEP_H_L ; Hang kiadása: L=freq (f = 57692 / H Hz), H=hossz (~10.24*L ms)
+        STATUS.add_diamond()
+    }
+
+    private move_ok( DE, HL ) {
+        LD A, OBJECT_SPACE_CHAR
+        LD (DE), A
+        LD A, OBJECT_PLAYER_CHAR
+        LD (HL), A
+        this.shadow_pos_addr := HL
+    }
+
+}

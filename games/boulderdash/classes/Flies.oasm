@@ -1,0 +1,136 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pályán lévő legyek őse
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+class Flies extends PropertiesDirect {
+
+    protected fly_DE_Left_to( HL, DE, C ) { ; A DE címen lévő repülő repültetése, C irányban áll épp, HL az irány címe
+        PUSH HL      ; Az aktuális elem irányának címére mutat
+        LD A, C
+        DEC A
+        AND 3           ; jobbra fordult
+        this.get_next_char_address_in_direction_HL( DE, A ) ; Az A irányban lévő következő karakter címét adja meg HL-ben
+        LD A, (HL)
+        if ( A == OBJECT_SPACE_CHAR ) {         ; Jobbra fordulva szabad az út, lépjünk hát oda, és forduljunk jobbra
+            LD (DE), A      ; A régi helyéről töröljük. A-ban épp az OBJECT_SPACE_CHAR van
+            EX AF, AF'
+            LD (HL), A      ; Az új helyen megjelenítjük a pillangót
+            LD A, C
+            DEC A
+            AND 3           ; A-ban a jobbra fordult új irány
+            ;;; Move to
+            POP DE                     ; DE-be az irány pointer címét vesszük vissza. HL-ben az új pozíció van
+            EX DE, HL                  ; HL-ben a pointer, DE-ben az új cím
+            DEC HL
+            DEC HL
+            LD (HL), E
+            INC HL
+            LD (HL), D
+            INC HL
+            LD (HL), A
+        } else if ( A == OBJECT_PLAYER_CHAR ) {
+            POP DE
+            ROBBANAS.firefly_kill_player( HL );
+        } else { ; Különben megyünk tovább az eddigi irányba, ha tudunk
+            this.get_next_char_address_in_direction_HL( DE, C ) ; A D irányban lévő következő karakter címét adja meg HL-ben
+            LD A, (HL)
+            CP OBJECT_SPACE_CHAR
+            if ( Z ) { ; Tudunk menni az eredeti irányba
+                ;;; Move to
+                LD (DE), A ; ez épp == OBJECT_SPACE_CHAR ; A régi helyéről töröljük
+                EX AF, AF'
+                LD (HL), A                 ; Az új helyen megjelenítjük a pillangót
+                POP DE                     ; DE-be a pointer címét vesszük vissza
+                EX DE, HL                  ; HL-ben a pointer, DE-ben az új cím
+                DEC HL
+                DEC HL
+                LD (HL), E
+                INC HL
+                LD (HL), D
+                INC HL
+                LD (HL), C
+            } else { ; Az eredeti irányban is gáz van
+                LD A, C         ; C-ben az eddigi irány
+                INC A
+                AND 3           ; balra fordulunk
+                POP HL
+                LD (HL), A
+            }
+        }
+    }
+
+    protected fly_DE_Right_to( HL, DE, C ) { ; A DE címen lévő repülő repültetése, C irányban áll épp, HL az irány címe
+        PUSH HL      ; Az aktuális elem irányának címére mutat
+        LD A, C
+        INC A
+        AND 3           ; jobbra fordult
+        this.get_next_char_address_in_direction_HL( DE, A ) ; Az A irányban lévő következő karakter címét adja meg HL-ben
+        LD A, (HL)
+        if ( A == OBJECT_SPACE_CHAR ) {         ; Jobbra fordulva szabad az út, lépjünk hát oda, és forduljunk jobbra
+            LD (DE), A      ; A régi helyéről töröljük. A-ban épp az OBJECT_SPACE_CHAR van
+            EX AF, AF'
+            LD (HL), A      ; Az új helyen megjelenítjük a pillangót
+            LD A, C
+            INC A
+            AND 3           ; A-ban a jobbra fordult új irány
+            ;;; Move to
+            POP DE                     ; DE-be az irány pointer címét vesszük vissza. HL-ben az új pozíció van
+            EX DE, HL                  ; HL-ben a pointer, DE-ben az új cím
+            DEC HL
+            DEC HL
+            LD (HL), E
+            INC HL
+            LD (HL), D
+            INC HL
+            LD (HL), A
+        } else if ( A == OBJECT_PLAYER_CHAR ) {
+            POP DE
+            ROBBANAS.butterfly_kill_player( HL );
+        } else { ; Különben megyünk tovább az eddigi irányba, ha tudunk
+            this.get_next_char_address_in_direction_HL( DE, C ) ; A D irányban lévő következő karakter címét adja meg HL-ben
+            LD A, (HL)
+            CP OBJECT_SPACE_CHAR
+            if ( Z ) { ; Tudunk menni az eredeti irányba
+                ;;; Move to
+                LD (DE), A ; ez épp == OBJECT_SPACE_CHAR ; A régi helyéről töröljük
+                EX AF, AF'
+                LD (HL), A                 ; Az új helyen megjelenítjük a pillangót
+                POP DE                     ; DE-be a pointer címét vesszük vissza
+                EX DE, HL                  ; HL-ben a pointer, DE-ben az új cím
+                DEC HL
+                DEC HL
+                LD (HL), E
+                INC HL
+                LD (HL), D
+                INC HL
+                LD (HL), C
+            } else { ; Az eredeti irányban is gáz van
+                LD A, C         ; C-ben az eddigi irány
+                DEC A
+                AND 3           ; balra fordulunk
+                POP HL
+                LD (HL), A
+            }
+        }
+    }
+
+    private get_next_char_address_in_direction_HL( DE, A ) {
+        LD H, D
+        LD L, E
+        if ( A == DIRECTION_RIGHT ) {
+            INC HL
+        } else if ( A == DIRECTION_LEFT ) {
+            DEC HL
+        } else if ( A == DIRECTION_UP ) {
+            PUSH DE
+            LD DE, -SHADOW_LINE_LENGTH
+            ADD HL, DE
+            POP DE
+        } else { ; DIRECTION_DOWN
+            PUSH DE
+            LD DE, SHADOW_LINE_LENGTH
+            ADD HL, DE
+            POP DE
+        }
+    }
+
+}

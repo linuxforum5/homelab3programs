@@ -1,0 +1,105 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A MagickWall animációja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+MAX_MAGICK_COUNTER:  EQU 12
+MagickPuffer: DS MAX_MAGICK_COUNTER*2, 0
+
+class MagickAnim extends PropertiesDirect {
+
+    DW first_free_addr
+    DB active
+    DB timer
+
+    public init( A ) {
+        INC A
+        this.timer := A
+        this.first_free_addr := MagickPuffer
+        this.active := 0
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL-ben a magick_wall képernyőcíme
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public append( HL ) {
+        PUSH HL
+        PUSH DE
+        EX DE, HL
+        HL := this.first_free_addr
+        LD (HL), E     ; Képernyő cím LOW
+        INC HL
+        LD (HL), D     ; Képernyő cím HIGH
+        INC HL
+        this.first_free_addr := HL
+        POP DE
+        POP HL
+    }
+
+    private is_eof( HL ) {       ; Z=1, ha HL a végére mutat, azaz üresre, BC-t elrontja
+        A := this.first_free_addr
+        if ( A == L ) {
+            A := this.first_free_addr+1
+            CP H
+            RET Z ; Ha igaz, akkor Z==1
+        } ; Itt F.Z biztos nem 1
+    }                          ; F.Z = 0
+
+    public anim() {
+        PUSH HL
+        PUSH DE
+        A := this.active
+        if ( A == 1 ) {
+            LD HL, MagickPuffer
+            this.is_eof( HL )        ; Z=1, ha eof
+            while ( NZ ) {
+                this.anim_one( HL )
+                this.is_eof( HL )        ; Z=1, ha eof
+            }
+        }
+        POP DE
+        POP HL
+    }
+
+    public countdown() {
+        A := this.active
+        if ( A == 1 ) {
+            A := this.timer
+            if ( A != 0 ) {
+                DEC A
+                this.timer := A
+                this.deactivate() if ( Z )
+            }
+        }
+    }
+
+    private anim_one( HL ) {
+        LD E, (HL)
+        INC HL
+        LD D, (HL)
+        INC HL
+        EX DE, HL
+        LD A, (HL)
+        if ( A == OBJECT_MAGICK_WALL1_CHAR ) {
+            LD (HL), OBJECT_MAGICK_WALL2_CHAR
+        } else {
+            LD (HL), OBJECT_MAGICK_WALL1_CHAR
+        }
+        EX DE, HL
+    }
+
+    private deactivate() {
+        LD HL, MagickPuffer
+        this.is_eof( HL )            ; Z=1, ha eof
+        while ( NZ ) {
+            LD E, (HL)
+            INC HL
+            LD D, (HL)
+            INC HL
+            EX DE, HL
+            LD (HL), OBJECT_WALL_CHAR
+            EX DE, HL
+            this.is_eof( HL )        ; Z=1, ha eof
+        }
+        this.active := 0
+    }
+
+}

@@ -1,0 +1,621 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Pályák object asm kódja
+;;; Publikus műveletek:
+;;; init_show( A ) ; A=cave index
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+randomObjects_length:   EQU 4
+
+DIR_UP:          EQU 0
+DIR_UPRIGHT:     EQU 1
+DIR_RIGHT:       EQU 2
+DIR_DOWNRIGHT:   EQU 3
+DIR_DOWN:        EQU 4
+DIR_DOWNLEFT:    EQU 5
+DIR_LEFT:        EQU 6
+DIR_UPLEFT:      EQU 7
+
+SHADOW_LINE_LENGTH: EQU 40
+SCREEN_LINE_LENGTH: EQU 64
+CAVE_SIZE: EQU SHADOW_LINE_LENGTH * 22
+CAVE_PUFFER: EQU $4030 ; DS CAVE_SIZE, 0
+
+class Cave extends PropertiesDirect {
+
+    DB randomSeed
+    DW randomObjects              ; Feljéc 0x18-0x1B
+    DW randomObjectProb           ; Feljéc 0x1C-0x1F
+    DB open_counter               ; Ajtónyitáshoz szükséges gyémántszám
+    DB diamond_point              ; Egy gyémánt pontértéke
+    DB extra_diamond_point        ; Egy extra gyémánt pontértéke
+    DB time                       ; A rendelkezésre álló idő
+    DB _pos_x
+    DB _pos_y
+    DB _width
+    DB _height
+    DB _length
+    DB _dir
+    DB _object_index
+    DB _fill_index ; fill object_code
+    DB _cave_index0
+    DW _door_puffer_pointer
+    DB _magicWallMillingTime_and_amoebaSlowGrowthTime
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL címhez hozzáadja C-t és onnan olvassa be az értéket A-ba. Majd HL-t növeli 4-C-vel
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private get_level_indexed_value_to_A_and_add_5_to_HL( HL, C ) {
+        LD A, 0
+        {
+            INC A
+            if ( A == C ) {
+                LD B, (HL)
+            }
+            INC HL
+        } until ( A == 5 )
+        LD A, B
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Pálya header beolvasása
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private load_cave_header_data_HL( HL ) {
+        C := GAME.level
+        ; 0. bájt az index
+        INC HL
+
+        ; 1. bájt a 'magicWallMillingTime' és az 'amoebaSlowGrowthTime' értéke. Mi ez?  same as magicWallMillingTime
+        LD A, (HL)
+        this._magicWallMillingTime_and_amoebaSlowGrowthTime := A
+        INC HL
+
+        ; 2. bájt Egy gyémánt értéke pontokban
+        LD A, (HL)
+        this.diamond_point := (HL)
+        INC HL
+
+        ; 3. bájt Az extraDiamondValue értéke
+        this.extra_diamond_point := (HL)
+        INC HL
+
+        ; 4-8. bájt a véletlengenerátor kezdő paraméterértéke (a második paraméter, az első mindig 0)
+        this.get_level_indexed_value_to_A_and_add_5_to_HL( HL, C )
+        this.randomSeed := A
+
+        ; 9-13. bájt az ajtónyitáshoz szükséges gyémántok száma
+        this.get_level_indexed_value_to_A_and_add_5_to_HL( HL, C )
+        this.open_counter := A
+
+        ; 14-18. A pályára rendelkezésre álló idő
+        this.get_level_indexed_value_to_A_and_add_5_to_HL( HL, C )
+        this.time := A
+
+        ; 19. color 1
+        INC HL
+        ; 20. color 2
+        INC HL
+        ; 21. ???
+        INC HL
+        ; 22. ???
+        INC HL
+        ; 23. ???
+        INC HL
+
+        ; 24. 0. randomObject kódja              Direkt innen olvasva
+        this.randomObjects := HL
+        INC HL
+        ; 25. 1. randomObject kódja
+        INC HL
+        ; 26. 2. randomObject kódja
+        INC HL
+        ; 27. 3. randomObject kódja
+        INC HL
+
+        ; 28. 0. randomObjectProb kódja          Direk innen olvasva
+        this.randomObjectProb := HL
+        INC HL
+        ; 29. 2. randomObjectProb kódja
+        INC HL
+        ; 30. 3. randomObjectProb kódja
+        INC HL
+        ; 31. 4. randomObjectProb kódja
+        INC HL
+        ; 'amoebaMaxSize'        => 200 # hard coded for a 40x22 cave (based on c64 version)
+        ; HL-ben az elsó 'map' adat
+    }
+
+    public init_show( A ) { ; CAVE_A megjelenítése, ahol az A regiszter a cave indexe A=0, B=1 ... T=22
+        ; this.full_steel_screen()
+        this._cave_index0 := A
+        this._pos_x := 0
+        this._pos_y := 0
+        this._width := SHADOW_LINE_LENGTH
+        this._height := 22
+        this._object_index := OBJECT_SPACE
+        this.drawFill()
+        A := this._cave_index0
+        this.load_cave_into_puffer( A )       ; Load into temporary place 20x38 (22x40)
+        SCREEN_SHADOW.firstRandomLoadFromPuffer()
+        this.init_collections()
+    }
+
+    private init_collections() {
+        AMOEBAS.init( this._magicWallMillingTime_and_amoebaSlowGrowthTime )
+        MAGICKANIM.init( this._magicWallMillingTime_and_amoebaSlowGrowthTime )
+        STONEGRAVITY.init()
+        DIAMONDGRAVITY.init()
+        BUTTERFLIES.init()
+        FIREFLIES.init()
+        this._pos_x := 0
+        this._pos_y := 1
+        {
+            this.get_pos_puffer_addr_to_HL()       ;            this.get_pos_screen_addr_to_HL()
+            LD A, (HL)
+            if ( A == OBJECT_DIAMOND1_CHAR ) {
+                DIAMONDGRAVITY.append( HL )
+            } else if ( A == OBJECT_BUTTERFLY1_CHAR ) {
+                BUTTERFLIES.append( HL )
+            } else if ( A == OBJECT_FIREFLY1_CHAR ) {
+                FIREFLIES.append( HL )
+            } else if ( A == OBJECT_MAGICK_WALL1_CHAR ) {
+                MAGICKANIM.append( HL )
+            } else if ( A == OBJECT_AMOEBA_CHAR ) {
+                AMOEBAS.append() ; inc counter ; Nem kell átadni a képernyőcímet, mert azt a pufferből közvetlen olvassuk ki
+            } else if ( A == OBJECT_STONE_CHAR ) {
+                STONEGRAVITY.append( HL )
+            } else if ( A == OBJECT_PLAYER_CHAR ) {
+                PLAYER.init( HL )
+            }
+            this.inc_pos_left_Z()         ; Lépteti a pozíciót X irányban, aztán a sor végén vissza, és y növel. Z, ha y = 21
+        } until( Z )
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Ajtó nyitása, ha már van elég gyémánt
+    ;;; A - Az összegyűjtött gyémántok száma
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public check_open_door( A ) {
+        LD B, A
+        A := this.open_counter
+        if ( A == B ) {
+            HL := this._door_puffer_pointer
+            LD (HL), OBJECT_OPENED_DOOR_CHAR
+            this.diamond_point := this.extra_diamond_point
+            STATUS.set_new_scorePerDiamond( this.diamond_point )
+            STATUS.hide_diamond_limit()
+;            STATUS.show_diamond_point()
+            SOUNDS.open_door()
+        }
+    }
+
+    private load_cave_into_puffer( A ) {
+        this.search_start_addr_to_HL( A )  ;A' is számít
+        this.load_cave_header_data_HL( HL ) ; HL-től olvas 32 bájtot, betölti az adatokat és a következő bájtra állítja HL értékét, ahol már a pályarajz adatai jönnek
+        PUSH HL
+        this.drawRandomObjects()
+        this._pos_x := 0
+        this._pos_y := 0
+        this._width := SHADOW_LINE_LENGTH
+        this._height := 22
+        this._object_index := OBJECT_STEEL
+        this.drawRect()
+        POP HL        ; HL az első adatra mutat
+        LD A, (HL)    ; Egy adat biztos van
+        {
+            LD C, A
+            AND 0x3F                 ;     # low 6 bits
+            this._object_index := A  ; < 64
+            LD A, C
+            AND 0xC0                 ;     # high 2 bits  C0, 80, 40, 00
+            LD C, A
+            INC HL
+            this._pos_x := (HL)
+            INC HL
+            LD A, (HL)        ; Feltöljuk 2-vel, mert így jó
+            DEC A             ;
+            DEC A             ; Feltölás vége
+            this._pos_y := A
+            INC HL
+            LD A, C ; kind
+            if ( A == 0x00 ) {                         ; kind 00 : Egyetlen objektum kitétele
+                this.drawSingleObject()
+            } else if ( A == 0x40 ) {                  ; kind 01 : Egy objektum vonal vízszintes vagy függőleges
+                this._length := (HL)
+                INC HL
+                this._dir := (HL)
+                INC HL
+                this.drawLine()
+            } else if ( A == 0x80 ) {                  ; kind 10 : Egy teli téglalap 
+                this._width := (HL)
+                INC HL
+                this._height := (HL)
+                INC HL
+                this._fill_index := (HL)
+                INC HL
+                this.drawFilledRect()
+            } else {                                   ; kind 11 : Egy téglalap körvonala
+                this._width := (HL)
+                INC HL
+                this._height := (HL)
+                INC HL
+                this.drawRect()               ; HL-től a következő 4 adat $x, $y, $cave->[$n++], $cave->[$n++] )
+            }
+            LD A, ( HL )
+        } until ( A == 0xFF )
+    }
+
+    private drawLine() {              ; _pos_x, _pos_y, _length, _dir
+        PUSH HL
+        A := this._length
+        for B = A to 1 {
+            this.drawSingleObject()
+            LD A, B
+            if ( A >= 2 ) {
+                A := this._dir
+                if ( A == DIR_UP ) {
+                    DEC this._pos_y
+                } else if ( A == DIR_UPRIGHT ) {
+                    INC this._pos_x
+                    DEC this._pos_y
+                } else if ( A == DIR_RIGHT ) {
+                    INC this._pos_x
+                } else if ( A == DIR_DOWNRIGHT ) {
+                    INC this._pos_x
+                    INC this._pos_y
+                } else if ( A == DIR_DOWN ) {
+                    INC this._pos_y
+                } else if ( A == DIR_DOWNLEFT ) {
+                    DEC this._pos_x
+                    INC this._pos_y
+                } else if ( A == DIR_LEFT ) {
+                    DEC this._pos_x
+                } else { ; A == DIR_UPLEFT
+                    DEC this._pos_x
+                    DEC this._pos_y
+                }
+            }
+        }
+        POP HL
+    }
+
+    private drawRect() {              ; _pos_x, _pos_y, _width, _height
+        PUSH HL
+        this._length := this._width
+        this._dir := DIR_RIGHT
+        this.drawLine()
+        this._length := this._height
+        this._dir := DIR_DOWN
+        this.drawLine()
+        this._length := this._width
+        this._dir := DIR_LEFT
+        this.drawLine()
+        this._length := this._height
+        this._dir := DIR_UP
+        this.drawLine()
+        POP HL
+    }
+
+    private drawFilledRect() {              ; _pos_x, _pos_y, _width, _height, _fill
+        PUSH HL
+        this.drawRect()
+        INC this._pos_x
+        INC this._pos_y
+        DEC this._width
+        DEC this._height
+        DEC this._width
+        DEC this._height
+        this._object_index := this._fill_index
+        this.drawFill()
+        POP HL
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Egy kitöltött téglalapot rajzol egyetlen objektumból (this._object_index)
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private drawFill() {              ; _pos_x, _pos_y, _width, _height
+        PUSH HL
+        B := this._height
+        this._length := this._width
+        this._dir := DIR_RIGHT
+        for B = B to 1 {
+            PUSH BC
+            this.drawLine()
+            INC this._pos_y
+            A := this._dir
+            if ( A == DIR_LEFT ) {
+                this._dir := DIR_RIGHT
+            } else {
+                this._dir := DIR_LEFT
+            }
+            POP BC
+        }
+        POP HL
+    }
+
+    private search_start_addr_to_HL( A )  {
+        LD DE, 0x20 ; A Header mérete
+        LD HL, LEVELS
+        while ( A >= 1 ) {
+            ADD HL, DE ; Átugorjuk a fejlécadatokat, mert abban is lehet 0xFF
+            EX AF, AF'
+            {
+                LD A, (HL)
+                INC HL
+            } until ( A == 0xFF )
+            EX AF, AF'
+            DEC A
+        }
+        ; HL-ben az aktuális pálya adatainak kezdőcíme
+    }
+
+    private drawRandomObjects() {
+        A := this.randomSeed
+        LD B, A
+        RND.init( 0, B ) ; this.randomSeed )
+        this._pos_x := 0
+        this._pos_y := 1
+        {
+            this._object_index := OBJECT_DIRT
+            RND.get_next_value_to_A()
+            LD C, A
+            HL := this.randomObjectProb           ; HL = randomObjectProb[0] address
+            EXX
+            HL := this.randomObjects              ; HL' = randomObjects[0]
+            EXX
+            for B = randomObjects_length to 1 {
+                LD A, C                           ; Last RND value
+                CP (HL)                           ; randomObjectProb[B-1] Ezek a limit értékek
+                if ( CY ) {                       ; LastRndValue < (HL)
+                    EXX
+                    this._object_index := (HL)    ; randomObjects[B-1]
+                    EXX
+                }
+                INC HL                            ; Decrement randomObjectProb index
+                EXX
+                INC HL
+                EXX
+            }
+            ;this._object_index := OBJECT_DIRT
+            this.drawSingleObject()
+            this.inc_pos_left_Z()         ; Lépteti a pozíciót X irányban, aztán a sor végén vissza, és y növel. Z, ha y = 21
+        } until( Z )
+    }
+
+    private inc_pos_left_Z() {
+        A := this._pos_x
+        INC A
+        if ( A < SHADOW_LINE_LENGTH ) { ; X=0-39
+            this._pos_x := A
+        } else {
+            this._pos_x := 0 ; New line
+            A := this._pos_y
+            INC A
+            if ( A < 21 ) { ; y=1-21
+                this._pos_y := A
+                LD A, 0
+                CP 1 ; F.Z := 0
+            } else {
+                CP A ; F.Z := 1
+            }
+        }
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Még le nem kódolt objektum a pályán. Csak fejlesztéshez
+    ;;; 
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private invalidChar() {
+        A := this._object_index
+;        DEBUG.show_num1( A );
+HALT
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Az _object_index objektum kitétele _pos_x,_pos_y koordinátára, majd HL növelése
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private drawSingleObject() {
+        PUSH HL
+        this.get_pos_puffer_addr_to_HL()
+        A := this._object_index
+        IF ( A == OBJECT_SPACE ) {              ; 0x00
+            LD A, OBJECT_SPACE_CHAR
+        } else if ( A == OBJECT_DIRT2 ) {       ; 0x01
+            LD A, OBJECT_DIRT_CHAR
+        } else if ( A == OBJECT_BRICK ) {       ; 0x02
+            LD A, OBJECT_WALL_CHAR
+        } else if ( A == OBJECT_MAGIC ) {       ; 0x03
+            LD A, OBJECT_MAGICK_WALL1_CHAR
+        } else if ( A == OBJECT_EXIT ) {        ; 0x04
+            PUSH HL
+            this.get_pos_puffer_addr_to_HL()    ;          this.get_pos_screen_addr_to_HL()
+            this._door_puffer_pointer := HL
+            POP HL
+            LD A, OBJECT_STEEL_CHAR
+        } else if ( A == OBJECT_DIRT_BLUE ) {   ; 0x05
+            LD A, OBJECT_DIRT_CHAR
+        } else if ( A == OBJECT_STEEL ) {       ; 0x07
+            LD A, OBJECT_STEEL_CHAR
+        } else if ( A == OBJECT_FIREFLY ) {     ; 0x08
+            LD A, OBJECT_FIREFLY1_CHAR
+        } else if ( A == OBJECT_BOULDER ) {     ; 0x10
+            LD A, OBJECT_STONE_CHAR
+        } else if ( A == OBJECT_DIAMOND ) {     ; 0x14
+            LD A, OBJECT_DIAMOND1_CHAR
+        } else if ( A == OBJECT_DIRT ) {        ; 0x20
+            LD A, OBJECT_DIRT_CHAR
+        } else if ( A == OBJECT_PLAYER ) {      ; 0x25
+            LD A, OBJECT_PLAYER_CHAR
+        } else if ( A == OBJECT_BUTTERFLY ) {   ; 0x30
+            LD A, OBJECT_BUTTERFLY1_CHAR
+        } else if ( A == OBJECT_BUTTERFLY2 ) {  ; 0x32
+            LD A, OBJECT_BUTTERFLY1_CHAR
+        } else if ( A == OBJECT_AMOEBA ) {      ; 0x3A
+            LD A, OBJECT_AMOEBA_CHAR
+        } else { ; error
+            this.invalidChar()
+        }
+        LD (HL), A
+        POP HL
+    }
+
+    private get_pos_puffer_addr_to_HL() {
+        LD HL, CAVE_PUFFER
+        PUSH BC
+        PUSH DE
+        LD D, 0
+        E := this._pos_x
+        ADD HL, DE
+        LD DE, SHADOW_LINE_LENGTH
+        A := this._pos_y
+        if ( A >= 1 ) {
+            for B = A to 1 {
+                ADD HL, DE
+            }
+        }
+        POP DE
+        POP BC
+        ; RETURN HL
+    }
+
+;    private get_pos_screen_addr_to_HL() {
+;        LD HL, LeftTopAddr
+;        PUSH BC
+;        PUSH DE
+;        LD D, 0
+;        E := this._pos_x
+;        ADD HL, DE
+;        LD DE, 64
+;        A := this._pos_y
+;        if ( A >= 1 ) {
+;            for B = A to 1 {
+;                ADD HL, DE
+;            }
+;        }
+;        POP DE
+;        POP BC
+;        ; RETURN HL
+;    }
+
+}
+
+OBJECT_SPACE:      EQU 0x00 ; OBJECT_SPACE_CHAR
+OBJECT_DIRT2:      EQU 0x01 ; OBJECT_DIRT_CHAR ; A pillangő körül ez szokott lenni. Miért is?
+OBJECT_DIRT_BLUE:  EQU 0x05 ; OBJECT_DIRT_CHAR ; Kék talaj?
+OBJECT_DIRT:       EQU 0x20 ; OBJECT_DIRT_CHAR
+OBJECT_BRICK:      EQU 0x02 ; OBJECT_WALL_CHAR
+OBJECT_MAGIC:      EQU 0x03 ; OBJECT_MAGICK_WALL1_CHAR
+OBJECT_STEEL:      EQU 0x07 ; OBJECT_STEEL_CHAR
+OBJECT_FIREFLY:    EQU 0x08 ; OBJECT_FIREFLY1_CHAR
+OBJECT_BOULDER:    EQU 0x10 ; OBJECT_STONE_CHAR
+OBJECT_DIAMOND:    EQU 0x14 ; OBJECT_DIAMOND1_CHAR
+OBJECT_BUTTERFLY:  EQU 0x30 ; OBJECT_BUTTERFLY1_CHAR
+OBJECT_BUTTERFLY2: EQU 0x32 ; OBJECT_BUTTERFLY1_CHAR
+OBJECT_ROCKFORD:   EQU 0x38 ;        OBJECT_PLAYER_CHAR
+OBJECT_AMOEBA:     EQU 0x3A ; OBJECT_AMOEBA_CHAR
+OBJECT_PLAYER:     EQU 0x25 ; OBJECT_PLAYER_CHAR         # PREROCKFORD : Bejárat , ember
+OBJECT_EXIT:       EQU 0x04 ; OBJECT_STEEL_CHAR           # PREOUTBOX : Kijárat
+
+;;;; 64 bájt az adott kódú objektumok megjelenített karaktere
+;OBJECT_CHARS:
+;;  0                      1                      2                      3                        4                    5                  6                  7                 8                    9   A                  B   C   D   E   F
+;DB OBJECT_SPACE_CHAR,     OBJECT_DIRT_CHAR,      OBJECT_WALL_CHAR,      OBJECT_MAGICK_WALL1_CHAR,OBJECT_STEEL_CHAR,   '?',               '?',               OBJECT_STEEL_CHAR,OBJECT_FIREFLY1_CHAR,'?','?',               '?','?','?','?','?'
+;DB OBJECT_STONE_CHAR,     '?',                   '?',                   '?',                     OBJECT_DIAMOND1_CHAR,'?',               '?',               '?',              '?',                 '?','?',               '?','?','?','?','?'
+;DB OBJECT_DIRT_CHAR,      '?',                   '?',                   '?',                     '?',                 OBJECT_PLAYER_CHAR,'?',               '?',              '?',                 '?','?',               '?','?','?','?','?'
+;DB OBJECT_BUTTERFLY1_CHAR,'?',                   OBJECT_BUTTERFLY1_CHAR,'?',                     '?',                 '?',               '?',               '?',              '?',                 '?',OBJECT_AMOEBA_CHAR,'?','?','?','?','?'
+
+; Az eredeti objektumtábla:
+;  var OBJECT = {
+;    SPACE:             { code: 0x00, rounded: false, explodable: false, consumable: true,  sprite: { x: 0, y: 6                 }, flash: { x: 4, y: 0 } },
+;    DIRT:              { code: 0x01, rounded: false, explodable: false, consumable: true,  sprite: { x: 1, y: 7                 } },
+;    BRICKWALL:         { code: 0x02, rounded: true,  explodable: false, consumable: true,  sprite: { x: 3, y: 6                 } },
+;    MAGICWALL:         { code: 0x03, rounded: false, explodable: false, consumable: true,  sprite: { x: 4, y: 6,  f: 4, fps: 20 } },
+;    PREOUTBOX:         { code: 0x04, rounded: false, explodable: false, consumable: false, sprite: { x: 1, y: 6                 } },
+;    OUTBOX:            { code: 0x05, rounded: false, explodable: false, consumable: false, sprite: { x: 1, y: 6,  f: 2, fps: 4  } },
+;    STEELWALL:         { code: 0x07, rounded: false, explodable: false, consumable: false, sprite: { x: 1, y: 6                 } },
+;    FIREFLY1:          { code: 0x08, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 9,  f: 8, fps: 20 } },
+;    FIREFLY2:          { code: 0x09, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 9,  f: 8, fps: 20 } },
+;    FIREFLY3:          { code: 0x0A, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 9,  f: 8, fps: 20 } },
+;    FIREFLY4:          { code: 0x0B, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 9,  f: 8, fps: 20 } },
+;    BOULDER:           { code: 0x10, rounded: true,  explodable: false, consumable: true,  sprite: { x: 0, y: 7                 } },
+;    BOULDERFALLING:    { code: 0x12, rounded: false, explodable: false, consumable: true,  sprite: { x: 0, y: 7                 } },
+;    DIAMOND:           { code: 0x14, rounded: true,  explodable: false, consumable: true,  sprite: { x: 0, y: 10, f: 8, fps: 20 } },
+;    DIAMONDFALLING:    { code: 0x16, rounded: false, explodable: false, consumable: true,  sprite: { x: 0, y: 10, f: 8, fps: 20 } },
+;    EXPLODETOSPACE0:   { code: 0x1B, rounded: false, explodable: false, consumable: false, sprite: { x: 3, y: 7                 } },
+;    EXPLODETOSPACE1:   { code: 0x1C, rounded: false, explodable: false, consumable: false, sprite: { x: 4, y: 7                 } },
+;    EXPLODETOSPACE2:   { code: 0x1D, rounded: false, explodable: false, consumable: false, sprite: { x: 5, y: 7                 } },
+;    EXPLODETOSPACE3:   { code: 0x1E, rounded: false, explodable: false, consumable: false, sprite: { x: 4, y: 7                 } },
+;    EXPLODETOSPACE4:   { code: 0x1F, rounded: false, explodable: false, consumable: false, sprite: { x: 3, y: 7                 } },
+;    EXPLODETODIAMOND0: { code: 0x20, rounded: false, explodable: false, consumable: false, sprite: { x: 3, y: 7                 } },
+;    EXPLODETODIAMOND1: { code: 0x21, rounded: false, explodable: false, consumable: false, sprite: { x: 4, y: 7                 } },
+;    EXPLODETODIAMOND2: { code: 0x22, rounded: false, explodable: false, consumable: false, sprite: { x: 5, y: 7                 } },
+;    EXPLODETODIAMOND3: { code: 0x23, rounded: false, explodable: false, consumable: false, sprite: { x: 4, y: 7                 } },
+;    EXPLODETODIAMOND4: { code: 0x24, rounded: false, explodable: false, consumable: false, sprite: { x: 3, y: 7                 } },
+;    PREROCKFORD1:      { code: 0x25, rounded: false, explodable: false, consumable: false, sprite: { x: 1, y: 6,  f: 2, fps: 4  } },
+;    PREROCKFORD2:      { code: 0x26, rounded: false, explodable: false, consumable: false, sprite: { x: 1, y: 0                 } },
+;    PREROCKFORD3:      { code: 0x27, rounded: false, explodable: false, consumable: false, sprite: { x: 2, y: 0                 } },
+;    PREROCKFORD4:      { code: 0x28, rounded: false, explodable: false, consumable: false, sprite: { x: 3, y: 0                 } },
+;    BUTTERFLY1:        { code: 0x30, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 11, f: 8, fps: 20 } },
+;    BUTTERFLY2:        { code: 0x31, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 11, f: 8, fps: 20 } },
+;    BUTTERFLY3:        { code: 0x32, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 11, f: 8, fps: 20 } },
+;    BUTTERFLY4:        { code: 0x33, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 11, f: 8, fps: 20 } },
+;    ROCKFORD:          { code: 0x38, rounded: false, explodable: true,  consumable: true,  sprite: { x: 0, y: 0                 },   // standing still
+;                                                                                             left: { x: 0, y: 4,  f: 8, fps: 20 },   // running left
+;                                                                                            right: { x: 0, y: 5,  f: 8, fps: 20 },   // running right
+;                                                                                            blink: { x: 0, y: 1,  f: 8, fps: 20 },   // blinking
+;                                                                                              tap: { x: 0, y: 2,  f: 8, fps: 20 },   // foot tapping
+;                                                                                         blinktap: { x: 0, y: 3,  f: 8, fps: 20 } }, // foot tapping and blinking
+;    AMOEBA:            { code: 0x3A, rounded: false, explodable: false, consumable: true,  sprite: { x: 0, y: 8,  f: 8, fps: 20 } }
+;  };
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pályák adatai. Az adatokat a 0xFF zárja le ilyen nincs a pálya adataiban, de a fejlécben lehet. A fejléc 0x20 méretű
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 0. index
+;;; 1. 
+;;; 2. Egy gyémánt értéke
+;;; 3. Egy gyémánt értéke, miután a kötelező mennyiséget összeszedte
+;;; 4-8. A randomszámláló inicializáló értéke
+;;; 9-13. Az ajtónyitáshoz szükséges gyémántok száma
+;;; 24-27 Random objects
+;;; 28-31 Random objects prob
+LEVELS: ;;; 0-19           RND1     2     3     4     5  DMS1     2     3     4     5          0F                                                  Objs                    Prob                1F    01     x     y     w     h    01     x     y     w     h    00     x     y    00     x     y
+CAVE_A:
+DB 0x01, 0x14, 0x0A, 0x0F, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x96, 0x6E, 0x46, 0x28, 0x1E, 0x08, 0x0B, 0x09, 0xD4, 0x20, 0x00, 0x10, 0x14, 0x00, 0x3C, 0x32, 0x09, 0x00, 0x42, 0x01, 0x09, 0x1E, 0x02, 0x42, 0x09, 0x10, 0x1E, 0x02, 0x25, 0x03, 0x04, 0x04, 0x26, 0x12, 0xFF
+CAVE_B: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x02, 0x14, 0x14, 0x32, 0x03, 0x00, 0x01, 0x57, 0x58, 0x0A, 0x0C, 0x09, 0x0D, 0x0A, 0x96, 0x6E, 0x46, 0x46, 0x46, 0x0A, 0x04, 0x09, 0x00, 0x00, 0x00, 0x10, 0x14, 0x08, 0x3C, 0x32, 0x09, 0x02, 0x42, 0x01, 0x08, 0x26, 0x02, 0x42, 0x01, 0x0F, 0x26, 0x02, 0x42, 0x08, 0x03, 0x14, 0x04, 0x42, 0x10, 0x03, 0x14, 0x04, 0x42, 0x18, 0x03, 0x14, 0x04, 0x42, 0x20, 0x03, 0x14, 0x04, 0x40, 0x01, 0x05, 0x26, 0x02, 0x40, 0x01, 0x0B, 0x26, 0x02, 0x40, 0x01, 0x12, 0x26, 0x02, 0x40, 0x14, 0x03, 0x14, 0x04, 0x25, 0x12, 0x15, 0x04, 0x12, 0x16, 0xFF
+CAVE_C: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x03, 0x00, 0x0F, 0x00, 0x00, 0x32, 0x36, 0x34, 0x37, 0x18, 0x17, 0x18, 0x17, 0x15, 0x96, 0x64, 0x5A, 0x50, 0x46, 0x09, 0x08, 0x09, 0x04, 0x00, 0x02, 0x10, 0x14, 0x00, 0x64, 0x32, 0x09, 0x00, 0x25, 0x03, 0x04, 0x04, 0x27, 0x14, 0xFF
+CAVE_D: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x04, 0x14, 0x05, 0x14, 0x00, 0x6E, 0x70, 0x73, 0x77, 0x24, 0x24, 0x24, 0x24, 0x24, 0x78, 0x64, 0x50, 0x3C, 0x32, 0x04, 0x08, 0x09, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x25, 0x01, 0x03, 0x04, 0x26, 0x16, 0x81, 0x08, 0x0A, 0x04, 0x04, 0x00, 0x30, 0x0A, 0x0B, 0x81, 0x10, 0x0A, 0x04, 0x04, 0x00, 0x30, 0x12, 0x0B, 0x81, 0x18, 0x0A, 0x04, 0x04, 0x00, 0x30, 0x1A, 0x0B, 0x81, 0x20, 0x0A, 0x04, 0x04, 0x00, 0x30, 0x22, 0x0B, 0xFF
+CAVE_E: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x05, 0x14, 0x32, 0x5A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x96, 0x78, 0x5A, 0x3C, 0x1E, 0x09, 0x0A, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x01, 0x03, 0x04, 0x27, 0x16, 0x80, 0x08, 0x0A, 0x03, 0x03, 0x00, 0x80, 0x10, 0x0A, 0x03, 0x03, 0x00, 0x80, 0x18, 0x0A, 0x03, 0x03, 0x00, 0x80, 0x20, 0x0A, 0x03, 0x03, 0x00, 0x14, 0x09, 0x0C, 0x08, 0x0A, 0x0A, 0x14, 0x11, 0x0C, 0x08, 0x12, 0x0A, 0x14, 0x19, 0x0C, 0x08, 0x1A, 0x0A, 0x14, 0x21, 0x0C, 0x08, 0x22, 0x0A, 0x80, 0x08, 0x10, 0x03, 0x03, 0x00, 0x80, 0x10, 0x10, 0x03, 0x03, 0x00, 0x80, 0x18, 0x10, 0x03, 0x03, 0x00, 0x80, 0x20, 0x10, 0x03, 0x03, 0x00, 0x14, 0x09, 0x12, 0x08, 0x0A, 0x10, 0x14, 0x11, 0x12, 0x08, 0x12, 0x10, 0x14, 0x19, 0x12, 0x08, 0x1A, 0x10, 0x14, 0x21, 0x12, 0x08, 0x22, 0x10, 0xFF
+CAVE_F: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x06, 0x14, 0x28, 0x3C, 0x00, 0x14, 0x15, 0x16, 0x17, 0x04, 0x06, 0x07, 0x08, 0x08, 0x96, 0x78, 0x64, 0x5A, 0x50, 0x0E, 0x0A, 0x09, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x82, 0x01, 0x03, 0x0A, 0x04, 0x00, 0x82, 0x01, 0x06, 0x0A, 0x04, 0x00, 0x82, 0x01, 0x09, 0x0A, 0x04, 0x00, 0x82, 0x01, 0x0C, 0x0A, 0x04, 0x00, 0x41, 0x0A, 0x03, 0x0D, 0x04, 0x14, 0x03, 0x05, 0x08, 0x04, 0x05, 0x14, 0x03, 0x08, 0x08, 0x04, 0x08, 0x14, 0x03, 0x0B, 0x08, 0x04, 0x0B, 0x14, 0x03, 0x0E, 0x08, 0x04, 0x0E, 0x82, 0x1D, 0x03, 0x0A, 0x04, 0x00, 0x82, 0x1D, 0x06, 0x0A, 0x04, 0x00, 0x82, 0x1D, 0x09, 0x0A, 0x04, 0x00, 0x82, 0x1D, 0x0C, 0x0A, 0x04, 0x00, 0x41, 0x1D, 0x03, 0x0D, 0x04, 0x14, 0x24, 0x05, 0x08, 0x23, 0x05, 0x14, 0x24, 0x08, 0x08, 0x23, 0x08, 0x14, 0x24, 0x0B, 0x08, 0x23, 0x0B, 0x14, 0x24, 0x0E, 0x08, 0x23, 0x0E, 0x25, 0x03, 0x14, 0x04, 0x26, 0x14, 0xFF
+CAVE_G: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x07, 0x4B, 0x0A, 0x14, 0x02, 0x07, 0x08, 0x0A, 0x09, 0x0F, 0x14, 0x19, 0x19, 0x19, 0x78, 0x78, 0x78, 0x78, 0x78, 0x09, 0x0A, 0x0D, 0x00, 0x00, 0x00, 0x10, 0x08, 0x00, 0x64, 0x28, 0x02, 0x00, 0x42, 0x01, 0x07, 0x0C, 0x02, 0x42, 0x1C, 0x05, 0x0B, 0x02, 0x7A, 0x13, 0x15, 0x02, 0x02, 0x14, 0x04, 0x06, 0x14, 0x04, 0x0E, 0x14, 0x04, 0x16, 0x14, 0x22, 0x04, 0x14, 0x22, 0x0C, 0x14, 0x22, 0x16, 0x25, 0x14, 0x03, 0x04, 0x27, 0x07, 0xFF
+CAVE_H: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x08, 0x14, 0x0A, 0x14, 0x01, 0x03, 0x04, 0x05, 0x06, 0x0A, 0x0F, 0x14, 0x14, 0x14, 0x78, 0x6E, 0x64, 0x5A, 0x50, 0x02, 0x0E, 0x09, 0x00, 0x00, 0x00, 0x10, 0x08, 0x00, 0x5A, 0x32, 0x02, 0x00, 0x14, 0x04, 0x06, 0x14, 0x22, 0x04, 0x14, 0x22, 0x0C, 0x04, 0x00, 0x05, 0x25, 0x14, 0x03, 0x42, 0x01, 0x07, 0x0C, 0x02, 0x42, 0x01, 0x0F, 0x0C, 0x02, 0x42, 0x1C, 0x05, 0x0B, 0x02, 0x42, 0x1C, 0x0D, 0x0B, 0x02, 0x43, 0x0E, 0x11, 0x08, 0x02, 0x14, 0x0C, 0x10, 0x00, 0x0E, 0x12, 0x14, 0x13, 0x12, 0x41, 0x0E, 0x0F, 0x08, 0x02, 0xFF
+CAVE_I: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x09, 0x14, 0x05, 0x0A, 0x64, 0x89, 0x8C, 0xFB, 0x33, 0x4B, 0x4B, 0x50, 0x55, 0x5A, 0x96, 0x96, 0x82, 0x82, 0x78, 0x08, 0x04, 0x09, 0x00, 0x00, 0x10, 0x14, 0x00, 0x00, 0xF0, 0x78, 0x00, 0x00, 0x82, 0x05, 0x0A, 0x0D, 0x0D, 0x00, 0x01, 0x0C, 0x0A, 0x82, 0x19, 0x0A, 0x0D, 0x0D, 0x00, 0x01, 0x1F, 0x0A, 0x42, 0x11, 0x12, 0x09, 0x02, 0x40, 0x11, 0x13, 0x09, 0x02, 0x25, 0x07, 0x0C, 0x04, 0x08, 0x0C, 0xFF
+CAVE_J: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x0A, 0x14, 0x19, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x96, 0x82, 0x78, 0x6E, 0x64, 0x06, 0x08, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x0D, 0x03, 0x04, 0x27, 0x16, 0x54, 0x05, 0x04, 0x11, 0x03, 0x54, 0x15, 0x04, 0x11, 0x05, 0x80, 0x05, 0x0B, 0x11, 0x03, 0x08, 0xC2, 0x01, 0x04, 0x15, 0x11, 0x00, 0x0D, 0x04, 0xC2, 0x07, 0x06, 0x0D, 0x0D, 0x00, 0x0D, 0x06, 0xC2, 0x09, 0x08, 0x09, 0x09, 0x00, 0x0D, 0x08, 0xC2, 0x0B, 0x0A, 0x05, 0x05, 0x00, 0x0D, 0x0A, 0x82, 0x03, 0x06, 0x03, 0x0F, 0x08, 0x00, 0x04, 0x06, 0x54, 0x04, 0x10, 0x04, 0x04, 0xFF
+CAVE_K: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x0B, 0x14, 0x32, 0x00, 0x00, 0x04, 0x66, 0x97, 0x64, 0x06, 0x06, 0x06, 0x06, 0x06, 0x78, 0x78, 0x96, 0x96, 0xF0, 0x0B, 0x08, 0x09, 0x00, 0x00, 0x00, 0x10, 0x08, 0x00, 0x64, 0x50, 0x02, 0x00, 0x42, 0x0A, 0x03, 0x09, 0x04, 0x42, 0x14, 0x03, 0x09, 0x04, 0x42, 0x1E, 0x03, 0x09, 0x04, 0x42, 0x09, 0x16, 0x09, 0x00, 0x42, 0x0C, 0x0F, 0x11, 0x02, 0x42, 0x05, 0x0B, 0x09, 0x02, 0x42, 0x0F, 0x0B, 0x09, 0x02, 0x42, 0x19, 0x0B, 0x09, 0x02, 0x42, 0x1C, 0x13, 0x0B, 0x01, 0x14, 0x04, 0x03, 0x14, 0x0E, 0x03, 0x14, 0x18, 0x03, 0x14, 0x22, 0x03, 0x14, 0x04, 0x16, 0x14, 0x23, 0x15, 0x25, 0x14, 0x14, 0x04, 0x26, 0x11, 0xFF
+CAVE_L: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x0C, 0x14, 0x14, 0x00, 0x00, 0x3C, 0x02, 0x3B, 0x66, 0x13, 0x13, 0x0E, 0x10, 0x15, 0xB4, 0xAA, 0xA0, 0xA0, 0xA0, 0x0C, 0x0A, 0x09, 0x00, 0x00, 0x00, 0x10, 0x14, 0x00, 0x3C, 0x32, 0x09, 0x00, 0x42, 0x0A, 0x05, 0x12, 0x04, 0x42, 0x0E, 0x05, 0x12, 0x04, 0x42, 0x12, 0x05, 0x12, 0x04, 0x42, 0x16, 0x05, 0x12, 0x04, 0x42, 0x02, 0x06, 0x0B, 0x02, 0x42, 0x02, 0x0A, 0x0B, 0x02, 0x42, 0x02, 0x0E, 0x0F, 0x02, 0x42, 0x02, 0x12, 0x0B, 0x02, 0x81, 0x1E, 0x04, 0x04, 0x04, 0x00, 0x08, 0x20, 0x05, 0x81, 0x1E, 0x09, 0x04, 0x04, 0x00, 0x08, 0x20, 0x0A, 0x81, 0x1E, 0x0E, 0x04, 0x04, 0x00, 0x08, 0x20, 0x0F, 0x25, 0x03, 0x14, 0x04, 0x27, 0x16, 0xFF
+CAVE_M: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x0D, 0x8C, 0x05, 0x08, 0x00, 0x01, 0x02, 0x03, 0x04, 0x32, 0x37, 0x3C, 0x46, 0x50, 0xA0, 0x9B, 0x96, 0x91, 0x8C, 0x06, 0x08, 0x0D, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x25, 0x12, 0x03, 0x04, 0x0A, 0x03, 0x3A, 0x14, 0x03, 0x42, 0x05, 0x12, 0x1E, 0x02, 0x70, 0x05, 0x13, 0x1E, 0x02, 0x50, 0x05, 0x14, 0x1E, 0x02, 0xC1, 0x05, 0x15, 0x1E, 0x02, 0xFF
+CAVE_N: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x0E, 0x14, 0x0A, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E, 0x23, 0x28, 0x2A, 0x2D, 0x96, 0x91, 0x8C, 0x87, 0x82, 0x0C, 0x08, 0x09, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x0A, 0x0A, 0x0D, 0x0D, 0x00, 0x70, 0x0B, 0x0B, 0x0C, 0x03, 0xC1, 0x0C, 0x0A, 0x03, 0x0D, 0xC1, 0x10, 0x0A, 0x03, 0x0D, 0xC1, 0x14, 0x0A, 0x03, 0x0D, 0x50, 0x16, 0x08, 0x0C, 0x02, 0x48, 0x16, 0x07, 0x0C, 0x02, 0xC1, 0x17, 0x06, 0x03, 0x04, 0xC1, 0x1B, 0x06, 0x03, 0x04, 0xC1, 0x1F, 0x06, 0x03, 0x04, 0x25, 0x03, 0x03, 0x04, 0x27, 0x14, 0xFF
+CAVE_O: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x0F, 0x08, 0x0A, 0x14, 0x01, 0x1D, 0x1E, 0x1F, 0x20, 0x0F, 0x14, 0x14, 0x19, 0x1E, 0x78, 0x78, 0x78, 0x78, 0x8C, 0x08, 0x0E, 0x09, 0x00, 0x00, 0x00, 0x10, 0x08, 0x00, 0x64, 0x50, 0x02, 0x00, 0x42, 0x02, 0x04, 0x0A, 0x03, 0x42, 0x0F, 0x0D, 0x0A, 0x01, 0x41, 0x0C, 0x0E, 0x03, 0x02, 0x43, 0x0C, 0x0F, 0x03, 0x02, 0x04, 0x14, 0x16, 0x25, 0x14, 0x03, 0xFF
+CAVE_P: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x10, 0x14, 0x0A, 0x14, 0x01, 0x78, 0x81, 0x7E, 0x7B, 0x0C, 0x0F, 0x0F, 0x0F, 0x0C, 0x96, 0x96, 0x96, 0x96, 0x96, 0x09, 0x0A, 0x09, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x25, 0x01, 0x03, 0x04, 0x27, 0x04, 0x81, 0x08, 0x13, 0x04, 0x04, 0x00, 0x08, 0x0A, 0x14, 0xC2, 0x07, 0x0A, 0x06, 0x08, 0x43, 0x07, 0x0A, 0x06, 0x02, 0x81, 0x10, 0x13, 0x04, 0x04, 0x00, 0x08, 0x12, 0x14, 0xC2, 0x0F, 0x0A, 0x06, 0x08, 0x43, 0x0F, 0x0A, 0x06, 0x02, 0x81, 0x18, 0x13, 0x04, 0x04, 0x00, 0x08, 0x1A, 0x14, 0x81, 0x20, 0x13, 0x04, 0x04, 0x00, 0x08, 0x22, 0x14, 0xFF
+CAVE_Q: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x11, 0x14, 0x1E, 0x00, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0E, 0x02, 0x09, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0xFF, 0x09, 0x00, 0x00, 0x87, 0x00, 0x02, 0x28, 0x16, 0x07, 0x87, 0x00, 0x02, 0x14, 0x0C, 0x00, 0x32, 0x0A, 0x0C, 0x10, 0x0A, 0x04, 0x01, 0x0A, 0x05, 0x25, 0x03, 0x05, 0x04, 0x12, 0x0C, 0xFF
+CAVE_R: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x12, 0x14, 0x0A, 0x00, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x10, 0x10, 0x10, 0x10, 0x10, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x06, 0x0F, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87, 0x00, 0x02, 0x28, 0x16, 0x07, 0x87, 0x00, 0x02, 0x14, 0x0C, 0x01, 0x50, 0x01, 0x03, 0x09, 0x03, 0x48, 0x02, 0x03, 0x08, 0x03, 0x54, 0x01, 0x05, 0x08, 0x03, 0x50, 0x01, 0x06, 0x07, 0x03, 0x50, 0x12, 0x03, 0x09, 0x05, 0x54, 0x12, 0x05, 0x08, 0x05, 0x50, 0x12, 0x06, 0x07, 0x05, 0x25, 0x01, 0x04, 0x04, 0x12, 0x04, 0xFF
+CAVE_S: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x13, 0x04, 0x0A, 0x00, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x14, 0x14, 0x14, 0x14, 0x14, 0x06, 0x08, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87, 0x00, 0x02, 0x28, 0x16, 0x07, 0x87, 0x00, 0x02, 0x14, 0x0C, 0x00, 0x54, 0x01, 0x0C, 0x12, 0x02, 0x88, 0x0F, 0x09, 0x04, 0x04, 0x08, 0x25, 0x08, 0x03, 0x04, 0x12, 0x07, 0xFF
+CAVE_T: ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 1F
+DB 0x14, 0x03, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x06, 0x06, 0x06, 0x06, 0x14, 0x14, 0x14, 0x14, 0x14, 0x06, 0x08, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87, 0x00, 0x02, 0x28, 0x16, 0x07, 0x87, 0x00, 0x02, 0x14, 0x0C, 0x01, 0xD0, 0x0B, 0x03, 0x03, 0x02, 0x80, 0x0B, 0x07, 0x03, 0x06, 0x00, 0x43, 0x0B, 0x06, 0x03, 0x02, 0x43, 0x0B, 0x0A, 0x03, 0x02, 0x50, 0x08, 0x07, 0x03, 0x03, 0x25, 0x03, 0x03, 0x04, 0x09, 0x0A, 0xFF
+END_OF_CAVES:

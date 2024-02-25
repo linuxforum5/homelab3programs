@@ -1,0 +1,410 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Egy robbanáseffekt megjelenítése képben és hangban
+;;; Publikus műveletei
+;;; .timeout()                   Elfogyott az iső
+;;; .stone_kill_player( HL )     Egy kő a HL pozícióban lévő játékos fejére esett
+;;; .diamond_kill_player( HL )   Egy gyémánt a HL pozícióban lévő játékos fejére esett
+;;; .butterfly_kill_player( HL ) Egy pillangó a HL pozícióban lévő játékosnak ment
+;;; .firefly_kill_player( HL )   Egy tűzlégy a HL pozícióban lévő játékosnak ment
+;;; .butterfly( HL )             A HL pozícióban lévő pillangó robban fel, mert ráesett valami
+;;; .firefly( HL )               A HL pozícióban lévő tűzlégy robban fel, mert ráesett valami
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+BIT_BLOCK_LENGTH:       EQU 30 ; Ennyi véletlen bit követi egymást egy bitblokkban. Egy blokk után jön egy szünet
+BIT_HOSSZ:              EQU 35 ; Egy bit hossza, azaz ismétlésének száma
+
+SILENT_LENGTH:          DW 0   ; Az aktuális szünethosszot tárolja
+SILENT_START_LENGTH:    EQU 1  ; Ez a nyitóhossz. Ehhez hozzáadja még a SILENT_INCREMENT_VALUE értékét, és ez lesz az első szünet hossza.
+SILENT_INCREMENT_VALUE: EQU 5
+SILENT_HIGH_LIMIT:      EQU 4  ; A silent hosszát tároló word felső bájtjának értéke, ha elérte ezt, akkor vége a robbanásnak
+
+class Robbanas extends PropertiesDirect {
+
+    DB after_char ; A robbanás utáni karakter kódja
+
+    public timeout() { ; Robbanás indítása, amikor elfogyott az idő
+        STATUS.show_message( "Timeout! You dead!@" )
+        HL := PLAYER.shadow_pos_addr
+        this.player( HL )
+    }
+
+    public stone_kill_player( HL ) {
+        STATUS.show_message( "Stone killed You!@" )
+        this.player( HL )
+    }
+
+    public diamond_kill_player( HL ) {
+        STATUS.show_message( "Diamond killed You!@" )
+        this.player( HL )
+    }
+
+    public butterfly_kill_player( HL ) {
+        STATUS.show_message( "Butterfly killed You!@" )
+        this.player( HL )
+    }
+
+    public firefly_kill_player( HL ) {
+        STATUS.show_message( "Firefly killed You!@" )
+        this.player( HL )
+    }
+
+    private player( HL ) { ; Ha a játékos robban fel, mert ráesett vagy hozzáért valami
+        this.remove9objects( HL )
+        this.show_animation( HL, OBJECT_SPACE_CHAR )
+        PLAYER.kill()
+        STATUS.wait()
+    }
+
+    public butterfly( HL ) { ; Ha egy pillangó robban fel, mert ráesett valami
+        this.change9objectsToDiamond( HL )           ; robbanás előkészítése
+        this.show_animation( HL, OBJECT_DIAMOND1_CHAR )  ; robbanás
+    }
+
+    public firefly( HL ) { ; Ha egy tűzlégy robban fel, mert ráesett valami
+        this.remove9objects( HL )
+        this.show_animation( HL, OBJECT_SPACE_CHAR )
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; A robbanás előtt a felrobbant objektumok eltávolítása, és az újak létrehoizása
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private remove9objects( HL ) {
+        LD DE, -(SHADOW_LINE_LENGTH+1)  ; -41
+        ADD HL, DE
+        this.removeObject( HL )
+        INC HL                          ; -40
+        this.removeObject( HL )
+        INC HL                          ; -39
+        this.removeObject( HL )
+        LD DE, SHADOW_LINE_LENGTH-2     ; (38)
+        ADD HL, DE                      ;  -1
+        this.removeObject( HL )
+        INC HL                          ;   0
+        this.removeObject( HL )
+        INC HL                          ;  +1
+        this.removeObject( HL )
+        LD DE, SHADOW_LINE_LENGTH-2     ; (38) 
+        ADD HL, DE                      ; +39
+        this.removeObject( HL )
+        INC HL                          ; +40
+        this.removeObject( HL )
+        INC HL                          ; +41
+        this.removeObject( HL )
+    }
+
+    private removeObject( HL ) {
+        LD A, (HL)     ; A jelenleg ezen a helyen lévő karakter kódja
+        if ( A == OBJECT_STONE_CHAR ) {
+            STONEGRAVITY.remove( HL )        ; HL nem változik
+        ; } else if ( A == OBJECT_STEEL_CHAR ) { ; Semmi sem történhet
+        } else if ( A == OBJECT_BUTTERFLY1_CHAR ) {
+            BUTTERFLIES.remove( HL )
+        } else if ( A == OBJECT_BUTTERFLY2_CHAR ) {
+            BUTTERFLIES.remove( HL )
+        } else if ( A == OBJECT_FIREFLY1_CHAR ) {
+            FIREFLIES.remove( HL )
+        } else if ( A == OBJECT_FIREFLY2_CHAR ) {
+            FIREFLIES.remove( HL )
+        } else if ( A == OBJECT_PLAYER_CHAR ) {
+            PLAYER.kill()
+        } ; Minden más marad
+    }
+
+    private change9objectsToDiamond( HL ) {
+        LD DE, -(SHADOW_LINE_LENGTH+1)
+        ADD HL, DE
+        this.changeObjectToDiamond( HL )
+        INC HL
+        this.changeObjectToDiamond( HL )
+        INC HL
+        this.changeObjectToDiamond( HL )
+        LD DE, SHADOW_LINE_LENGTH-2
+        ADD HL, DE
+        this.changeObjectToDiamond( HL )
+        INC HL
+        this.changeObjectToDiamond( HL )
+        INC HL
+        this.changeObjectToDiamond( HL )
+        LD DE, SHADOW_LINE_LENGTH-2
+        ADD HL, DE
+        this.changeObjectToDiamond( HL )
+        INC HL
+        this.changeObjectToDiamond( HL )
+        INC HL
+        this.changeObjectToDiamond( HL )
+    }
+
+    private changeObjectToDiamond( HL ) {
+        LD A, (HL)                                   ; A jelenleg ezen a helyen lévő karakter kódja
+        if ( A == OBJECT_STONE_CHAR ) {              ; A kő eltűnik, és gyíémánttá fog változni
+            STONEGRAVITY.remove( HL )                ; HL nem változik
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_WALL_CHAR ) {        ; A köztes fal gyémánttá fog változni
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_SPACE_CHAR ) {       ; A space gyémánttá fog változni
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_DIRT_CHAR ) {        ; A talaj gyémánttá fog változni
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_FIREFLY1_CHAR ) {    ; A tűzlégy elűnik, és gyémánttá fog változni
+            FIREFLIES.remove( HL )
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_FIREFLY2_CHAR ) {    ; A tűzlégy elűnik, és gyémánttá fog változni
+            FIREFLIES.remove( HL )
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_BUTTERFLY1_CHAR ) {  ; A pillangó elűnik, és gyémánttá fog változni
+            BUTTERFLIES.remove( HL )
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_BUTTERFLY2_CHAR ) {  ; A pillangó elűnik, és gyémánttá fog változni
+            BUTTERFLIES.remove( HL )
+            DIAMONDGRAVITY.append( HL )
+        } else if ( A == OBJECT_PLAYER_CHAR ) {      ; A játékos meghal
+            PLAYER.kill()
+        }                                            ; Minden más marad, azaz a STEEL is marad változatlan, nem lesz új gyémánt
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; A robbanás effekt műveletei
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private show_animation( HL, A ) { ; Animáció megjelenítése. HL jobb alsó sarok címe. A az utána megjelenítendő érték
+        this.after_char := A
+        PUSH BC
+        PUSH DE
+        LD DE, -(SHADOW_LINE_LENGTH+1)
+        ADD HL, DE           ; HL innentől a középső cella címe a shadow memóriában
+        this.show_center( HL )
+        POP DE
+        POP BC
+    }
+
+    private show_center( HL ) {     ; HL a középső cella címe a shadow memóriában
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        EX DE, HL
+        SCREEN_SHADOW.get_screen_addr_from_puffer_addr_to_HL( DE ) 
+        this.show_effect_center( HL )
+        POP HL                      ; HL a középső cella címe a shadow memóriában
+        PUSH HL
+        this.clear9_center( HL )
+        POP HL
+        POP DE
+        POP BC
+    }
+
+    private show_effect_center( HL ) {       ; HL nem változik, a középpontra mutat a shadow memóriában
+        EXX
+        LD HL, 13456
+        LD DE, $2157                         ; for z80b_rand_8
+        LD BC, 1                             ; Silent start value
+        LD (SILENT_LENGTH), BC
+        {
+            LD C, BIT_HOSSZ
+;            LD A, BIT_BLOCK_LENGTH
+            {
+                EX AF, AF' ; '
+                this.noise_bit( C, HL, DE )
+                EX AF, AF' ; '
+
+                LD A, (0xE802)
+                RRA
+            } until( CY ) ; Addig fut, míg a 0. bit 1-es nem lesz. Ha 1, akkor van képszinkron, akkor engedi tovább.
+;                DEC A
+;            } until ( Z )
+            ;;; Silent
+            LD BC, (SILENT_LENGTH)      ; 4 bytes, T=20
+            ; A változat, annyi INC amennyi kell. T=n*6, azaz n>=5 esetén T>=30. Ez esetben a másik változat már gyorsabb, 7 felett már kisebb is
+            LD A, C                     ; 1 byte, T=4
+            ADD A, SILENT_INCREMENT_VALUE ; 2 byte, T=7
+            LD C, A                     ; 1 byte, T=4
+            LD A, 0                     ; 1 byte, T=4
+            ADC A, B                    ; 1 byte, T=4
+            LD B, A                     ; 1 byte, T=4 ; sumT=27 ; 7 bytes
+            LD (SILENT_LENGTH), BC      ; 4 bytes, T=20
+            LD A, B
+            CP SILENT_HIGH_LIMIT        ; A szünetek maximális hosszát kontrollálja
+            EXX
+            RET Z
+            this.show9( HL )            ; HL nem változik
+            EXX
+            this.silent( BC )
+        } until() ; forever loop
+    }
+
+    private clear9_center( HL ) {  ; HL a középpontra mutat a SHADOW memóriában
+        ;;; Első sor
+        LD DE, -(SHADOW_LINE_LENGTH+1)
+        ADD HL, DE
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL), A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        ;;; Második sor
+        LD DE, SHADOW_LINE_LENGTH-2
+        ADD HL, DE
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        ;;; Harmadik sor
+        ADD HL, DE
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            A := this.after_char
+            LD (HL),A
+        }
+        ;;; HL visszaállítása
+        LD DE, -(SHADOW_LINE_LENGTH+1)
+        ADD HL, DE
+    }
+
+    private show9( HL ) {
+        ;;; Első sor
+        LD DE, -(SCREEN_LINE_LENGTH+1)
+        ADD HL, DE
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL),A
+        }
+        ;;; Második sor
+        LD DE, SCREEN_LINE_LENGTH-2
+        ADD HL, DE
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL),A
+        }
+        ;;; Harmadik sor
+        ADD HL, DE
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL),A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL), A
+        }
+        INC HL
+        LD A, (HL)
+        if ( A != OBJECT_STEEL_CHAR ) {
+            LD A, R
+            OR 193
+            XOR 63 ; DEC A
+            LD (HL), A
+        }
+        ;;; HL visszaállítása
+        LD DE, -(SCREEN_LINE_LENGTH+1)
+        ADD HL, DE
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Csend HL ideig
+    ;;; HL - Az ismétlési loop mennyisége
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private silent( BC ) {
+        {
+            LD (SPEAKER_OFF), A
+            NOP
+            DEC BC
+            LD A, B
+            OR C
+        } until ( Z )
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; C - Az ismétlési loop, ennyiszer adja ki a generált véletlen bitet (on/off)
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private noise_bit( C, HL, DE ) {
+        ADD HL, DE
+        RLC H
+        INC H               ; optional, improves quality
+        LD A, H
+        LD (NOISE_OUT+1), A ; NOISE_OUT+1 = on/off byte address
+        for B = C to 1 {
+NOISE_OUT:  LD (SPEAKER_OFF), A
+            NOP
+        }
+        LD (SPEAKER_OFF), A
+    }
+
+}

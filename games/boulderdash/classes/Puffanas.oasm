@@ -1,0 +1,78 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Egy puffanás effekt hangja: kő leesik
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+PUFF_BIT_BLOCK_LENGTH:       EQU 35 ; Ennyi véletlen bit követi egymást egy bitblokkban. Egy blokk után jön egy szünet
+PUFF_BIT_HOSSZ:              EQU 30 ; Egy bit hossza, azaz ismétlésének száma
+
+PUFF_SILENT_LENGTH:          DW 0   ; Az aktuális szünethosszot tárolja
+PUFF_SILENT_START_LENGTH:    EQU 1  ; Ez a nyitóhossz. Ehhez hozzáadja még a SILENT_INCREMENT_VALUE értékét, és ez lesz az első szünet hossza.
+PUFF_SILENT_INCREMENT_VALUE: EQU 135
+PUFF_SILENT_HIGH_LIMIT:      EQU 2  ; A silent hosszát tároló word felső bájtjának értéke, ha elérte ezt, akkor vége a robbanásnak
+
+class Puffanas extends PropertiesDirect {
+
+    private go() {
+        EXX
+        LD HL, 13456
+        LD DE, $2157 ; for z80b_rand_8
+        LD BC, 1 ; Silent start value
+        LD (PUFF_SILENT_LENGTH), BC
+        {
+            LD C, PUFF_BIT_HOSSZ
+            LD A, PUFF_BIT_BLOCK_LENGTH
+            {
+                EX AF, AF' ; '
+                this.noise_bit( C, HL, DE )
+                EX AF, AF' ; '
+                DEC A
+            } until ( Z )
+            ;;; Silent
+            LD BC, (PUFF_SILENT_LENGTH)      ; 4 bytes, T=20
+            ; A változat, annyi INC amennyi kell. T=n*6, azaz n>=5 esetén T>=30. Ez esetben a másik változat már gyorsabb, 7 felett már kisebb is
+            LD A, C                     ; 1 byte, T=4
+            ADD A, PUFF_SILENT_INCREMENT_VALUE ; 2 byte, T=7
+            LD C, A                     ; 1 byte, T=4
+            LD A, 0                     ; 1 byte, T=4
+            ADC A, B                    ; 1 byte, T=4
+            LD B, A                     ; 1 byte, T=4 ; sumT=27 ; 7 bytes
+            LD (PUFF_SILENT_LENGTH), BC      ; 4 bytes, T=20
+            LD A, B
+            CP PUFF_SILENT_HIGH_LIMIT        ; A szünetek maximális hosszát kontrollálja
+            EXX
+            RET Z
+            EXX
+            this.silent( BC )
+        } until() ; forever loop
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Csend HL ideig
+    ;;; HL - Az ismétlési loop mennyisége
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private silent( BC ) {
+        {
+            LD (SPEAKER_OFF), A
+            NOP
+            DEC BC
+            LD A, B
+            OR C
+        } until ( Z )
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; C - Az ismétlési loop, ennyiszer adja ki a generált véletlen bitet (on/off)
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private noise_bit( C, HL, DE ) {
+        ADD HL, DE
+        RLC H
+        INC H               ; optional, improves quality
+        LD A, H
+        LD (PUFF_NOISE_OUT+1), A ; NOISE_OUT+1 = on/off byte address
+        for B = C to 1 {
+PUFF_NOISE_OUT:  LD (SPEAKER_OFF), A
+            NOP
+        }
+        LD (SPEAKER_OFF), A
+    }
+
+}

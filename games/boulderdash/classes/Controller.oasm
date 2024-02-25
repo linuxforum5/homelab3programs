@@ -1,0 +1,102 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Az irányítás object asm kódja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+class Controller extends PropertiesDirect {
+
+    DB skip_counter
+    DB last_pressed
+
+    constructor() {
+        this.skip_counter := CONTROLLER_SPEED
+        this.last_pressed := NOTHING_PRESSED
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; A lenyomott irányítási parancsok beolvasása
+    ;;; F.Z = 1, ha nincs lenyomva semmi
+    ;;; A = KEYBOARD_CURSOR_LEFT, KEYBOARD_CURSOR_RIGHT, KEYBOARD_CURSOR_UP, KEYBOARD_CURSOR_DOWN
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public get_direction_to_A_Z() {
+        this.hack_keys()
+        LD A, (KEYBOARD_CURSOR_ADDR)
+        AND NOTHING_PRESSED
+        CP NOTHING_PRESSED
+        if ( Z ) {
+            LD A, (KEYBOARD_JKLM_ADDR)
+            AND NOTHING_PRESSED
+            CP NOTHING_PRESSED
+            if ( NZ ) {
+                BIT KEYBOARD_J_BIT, A
+                if ( Z ) {
+                    LD A, KEYBOARD_CURSOR_UP
+                } else {
+                    BIT KEYBOARD_M_BIT, A
+                    if ( Z ) {
+                        LD A, KEYBOARD_CURSOR_DOWN
+                    } else {
+                        BIT KEYBOARD_L_BIT, A
+                        if ( Z ) {
+                            LD A, KEYBOARD_CURSOR_RIGHT
+                        } else {
+                            LD A, KEYBOARD_CURSOR_LEFT_BIT
+                        }
+                    }
+                }
+                OR A
+            }
+        }
+    }
+
+    public check_in_wait() {
+        LD A, (KEYBOARD_CURSOR_ADDR)
+        AND NOTHING_PRESSED
+        if ( A != NOTHING_PRESSED ) {
+            this.last_pressed := A
+        }
+    }
+
+    private hack_keys() {
+        LD A,(KEYBOARD_PQRS_ADDR)
+        AND NOTHING_PRESSED
+        if ( A == 13 ) { ; Q : Quit
+            PLAYER.in_game := 0
+            GAME.live_counter := 0
+        }
+;        LD A,(KEYBOARD_NOOO_ADDR)
+;        AND NOTHING_PRESSED
+;        if ( A == 14 ) { ; N : next
+;            DE := PLAYER.pos_addr
+;            PLAYER.next_cave( DE )
+;        }
+;        LD A,(KEYBOARD_PQRS_ADDR)
+;        AND NOTHING_PRESSED
+;        if ( A == 11 ) { ; R : Restart
+;            PLAYER.in_game := 0
+;        } else if ( A == 13 ) { ; Q : quit
+;            PLAYER.in_game := 0
+;            GAME.live_counter := 0
+;        } else if ( A == 14 ) { ; P : pause
+;            this.pause()
+;        }
+    }
+
+;    private pause() {
+;        STATUS.show_message( "PAUSED!@" );
+;        LD A,(KEYBOARD_PQRS_ADDR)
+;        AND NOTHING_PRESSED
+;        while ( A == 14 ) { ; P
+;            LD A,(KEYBOARD_PQRS_ADDR)
+;            AND NOTHING_PRESSED
+;        }
+;        while ( A != 14 ) { ; P
+;            LD A,(KEYBOARD_PQRS_ADDR)
+;            AND NOTHING_PRESSED
+;        }
+;        while ( A == 14 ) { ; P
+;            LD A,(KEYBOARD_PQRS_ADDR)
+;            AND NOTHING_PRESSED
+;        }
+;        STATUS.clear_message()
+;    }
+
+}

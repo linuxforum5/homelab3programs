@@ -1,0 +1,182 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A CAVE_PUFFER területet jeleníti meg a valódi képernyőn
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+LOAD_AT_ONCE: EQU 16                   ; Egyszerre ennyi kockát tölt be 880 osztója kell, hogy legyen: 1,2,4,5,8,11,...
+LoadingPuffer: DS 3*LOAD_AT_ONCE, 0   ; Minden töltés 3 bájt. 1 érték, hogy mit, és egy cím, hogy hova
+
+class ScreenShadow extends PropertiesDirect {
+
+    DB cnt           ; Páros vagy páratlan frissítések számlálásához
+        
+    public refresh_status_only() {
+        LD HL, STATUS_CACHE
+        LD DE, Status_Screen_Start
+        LD BC, 38
+        LDIR
+    }
+
+    public refresh_screen() {
+        inc this.cnt
+        AND 1
+        if ( Z ) {
+            LD HL, STATUS_CACHE
+            LD DE, Status_Screen_Start
+            LD BC, 38
+            LDIR
+            LD HL, CAVE_PUFFER+2*SHADOW_LINE_LENGTH ; Puffer address
+            LD DE, LeftTopAddr+2*64
+        } else {
+            LD HL, CAVE_PUFFER+1*SHADOW_LINE_LENGTH ; Puffer address
+            LD DE, LeftTopAddr+1*64
+        }
+        LD A, 10
+        {
+            LD BC, SHADOW_LINE_LENGTH
+            LDIR
+            LD BC, SHADOW_LINE_LENGTH
+            ADD HL, BC
+            EX DE, HL
+            LD BC, 64+24
+            ADD HL, BC
+            EX DE, HL
+            DEC A
+        } until ( Z )
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Innentől a random load művelet
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private full_steel_screen() {
+        LD HL, LeftTopAddr
+        LD DE, LeftTopAddr+1
+        for B = 22 to 1 {
+            PUSH BC
+            LD (HL), OBJECT_STEEL_CHAR
+            LD BC, 39
+            LDIR
+            LD BC, 25
+            ADD HL, BC
+            EX DE, HL
+            ADD HL, BC
+            EX DE, HL
+            POP BC
+        }
+    }
+
+SHADOW_LOAD_STEP: EQU 269; 41*13 ; 533 ; 283 ; 269 / 773
+
+    ;;; 13 X és Y irányban is, azaz 13+40*13 = 41*13
+    private firstRandomLoadFromPuffer() { ; 880 / 13
+        this.full_steel_screen()
+        LD DE, CAVE_PUFFER               ; cave puffer index
+        for B = 880/LOAD_AT_ONCE to 1 {
+            PUSH BC
+            LD BC, LoadingPuffer
+            LD A, LOAD_AT_ONCE
+            {
+                PUSH AF
+                this.loadFromPuffer_tick_DE_BC( DE, BC ) ; A loadPuffer-t feltölti
+                POP AF
+                DEC A
+            } until( Z )
+            CALL ROM_WAIT_SCREEN
+            this.real_puffer_copy()
+            this.hang()
+            POP BC
+        }
+    }
+
+    private real_puffer_copy() {
+        PUSH DE
+        LD HL, LoadingPuffer
+        for B = LOAD_AT_ONCE to 1 {
+            LD A, (HL)
+            INC HL
+            LD E, (HL)
+            INC HL
+            LD D, (HL)
+            LD (DE), A
+            INC HL
+        }
+        POP DE
+    }
+
+    private hang() {
+        ;;; Hang
+        PUSH HL
+;        RND.get_next_value_to_A()
+;        AND 7
+;        if ( Z ) {
+            RND.get_next_value_to_A()
+            LD L, A
+            LD H, 3
+            CALL ROM_BEEP_H_L ; Hang kiadása: L=freq (f = 57692 / H Hz), H=hossz (~10.24*L ms)
+;        }
+        POP HL
+        ;;; Hang vége
+    }
+
+    private loadFromPuffer_tick_DE_BC( DE, BC ) { ; 880 / 13 ; BC a puffer címe
+            LD A, (DE)
+            LD (BC), A
+            INC BC
+        PUSH DE
+        PUSH BC
+        this.get_screen_addr_from_puffer_addr_to_HL( DE ) ; A nem változik
+        POP BC
+            LD A, L
+            LD (BC), A
+            INC BC
+            LD A, H
+            LD (BC), A
+            INC BC
+        POP DE
+        PUSH BC
+        ;;;;;;;;;;;;;;;; DE := DE + SHADOW_LOAD_STEP with overflow BEGIN
+        LD HL, SHADOW_LOAD_STEP
+        ADD HL, DE                             ; HL := DE + SHADOW_LOAD_STEP
+        LD D, H                                ; DE := HL
+        LD E, L                                ; BC-ben a következő cím
+        LD BC, CAVE_PUFFER + CAVE_SIZE         ; BC := puffer utáni első szabad bájtjának a címe
+        OR A                                   ; Clear carry flag
+        SBC HL, BC                             ; HL := HL - BC
+        if ( NCY ) {                           ; HL >= BC, azaz már a pufferen kívülre mutat. Ekkor HL az amennyivel túlmutat
+            LD BC, CAVE_PUFFER
+            ADD HL, BC
+            LD D, H
+            LD E, L                                ; DE-ben a következő cím
+        }
+        POP BC
+    }
+
+    private get_screen_addr_from_puffer_addr_to_HL( DE ) {
+        LD HL, -CAVE_PUFFER
+        ADD HL, DE               ; HL-ben a relatív index
+        EX DE, HL                ; DE-ben a relítav index
+        LD BC, LeftTopAddr-64    ; BC-ben az előző képernyősor kezdőcíme
+        OR A                     ; Clear CY flag
+        {
+            ;;;;;;;;;;;;;; BC := BC + 64 BEGIN
+            LD HL, 64
+            ADD HL, BC
+            LD B, H
+            LD C, L              ; BC-ben az aktuális képernyősor eleje
+            ;;;;;;;;;;;;;; BC := BC + 64 END
+
+            ;;;;;;;;;;;;;; DE := DE - 40 BEGIN
+            EX DE, HL            ; HL-ben a relatív index
+            LD DE, 40
+            SBC HL, DE           ; HL := HL - 40
+            EX DE, HL            ; DE-ben a következő sor eleje. Ha nincs alulcsordulás, akkor mehet tovább
+            ;;;;;;;;;;;;;; DE := DE - 40 END
+        } until ( CY )
+        ; kiléptünk, tehát túlfutottunk BC-ben az aktuális sor eleje, DE-ben a túlfurás mértéke [ -1, -40 ]
+        LD HL, 40
+        ADD HL, DE
+        EX DE, HL                ; DE-ben a soron belüli eltolás cím
+        LD H, B
+        LD L, C                  ; HL-ben az aktuális sor eleje
+        ADD HL, DE               ; HL-ben a képernyőcím
+    }
+
+}

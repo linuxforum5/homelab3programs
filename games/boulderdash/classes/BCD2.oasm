@@ -1,0 +1,86 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 2 bájtoas BCD konverter object asm kódja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+class BCD2 extends BCD1 {
+
+    DB b2 ; Középső helyiérték
+    DB dec_val
+
+    constructor( B ) {
+        this.b1 := 0
+        this.b2 := 0
+        this.dec_val := 0
+        LD A, B
+        CP 0
+        while ( NZ ) {
+            PUSH BC
+            this.inc();
+            POP BC
+            DEC B
+            LD A, B
+            CP 0
+        }
+    }
+
+    public inc() {
+        inc this.dec_val
+        parent.inc()
+        RET NC
+        C := this.b2
+        LD A, 1
+        ADD A, C
+        DAA
+        this.b2 := A
+    }
+
+    public dec() {
+        dec this.dec_val
+        parent.dec()
+        RET NC
+        A := this.b2
+        SUB C
+        DAA
+        this.b2 := A
+    }
+
+    public get_dec_val_to_A() {
+        A := this.dec_val
+    }
+
+    public cp0() {
+        B := this.b1
+        A := this.b2
+        OR B
+    }
+
+    public cp( A ) {
+        LD B, A
+        A := this.b2
+        CP 0
+        RET NZ
+        A := this.b1
+        CP B
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL - A képernyőmemória kezdőcíme
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public print( HL ) {
+        this.print_byte( HL, this.b2 )
+        parent.print( HL )
+    }
+
+    public print1( HL ) {
+        this.print1_byte( HL, this.b2 )
+        parent.print( HL )
+    }
+
+    public get_val2_A() {
+        A := this.b2
+    }
+    public set_val2( A ) {
+        this.b2 := A
+    }
+
+}

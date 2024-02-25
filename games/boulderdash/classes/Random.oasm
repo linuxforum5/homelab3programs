@@ -1,0 +1,109 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Random generátor object asm kódja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+class Random extends PropertiesDirect {
+
+    DB RandSeed1
+    DB RandSeed2
+    DB TempRand1
+    DB TempRand2
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; A - RandSeed1 értéke
+    ;;; B - RandSeed2 értéke
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public init( A, B ) {
+        this.RandSeed1 := A
+        this.RandSeed2 := B
+    }
+
+    public get_next_value_to_A() {
+        this.bdrandom()
+        A := this.RandSeed1
+    }
+
+    private bdrandom() { ; // private NextRandom() { ;;; (int *RandSeed1,int *RandSeed2)
+        PUSH HL
+        PUSH BC
+        PUSH DE
+        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        ;/*
+        ;    7085 NextRandom.00  LDA RandSeed1      A:=RandSeed1
+        ;    7087                ROR                CY->.7->.0->CY
+        ;    7088                ROR
+        ;    7089                AND #$80
+        ;    708B                STA TempRand1      TempRand1:=A
+        ;
+        ;    Note: ROR on the 6510 works like this:
+        ;      7-->6-->5-->4-->3-->2-->1-->0-->C
+        ;      ^                               |
+        ;      |_______________________________|
+        ;    In other words, it's a nine-bit rotate. Thus it takes two RORs to shift
+        ;    the low bit (bit zero) into the high bit (bit 7).
+        ;*/
+        A := this.RandSeed1
+        RRA
+        RRA
+        AND 0x80
+        this.TempRand1 := A
+        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        ;/*
+        ;    708E                LDA RandSeed2
+        ;    7090                ROR
+        ;    7091                AND #$7F
+        ;    7093                STA TempRand2
+        ;*/
+        A := this.RandSeed2
+        RRA
+        AND 0x7F
+        this.TempRand2 := A
+        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        ;/*
+        ;    7096                LDA RandSeed2
+        ;    7098                ROR
+        ;    7099                ROR
+        ;    709A                AND #$80
+        ;    709C                CLC              CY:=0
+        ;    709D                ADC RandSeed2
+        ;*/
+        A := this.RandSeed2
+        LD B, A                ; B:=RandSeed2
+        RRA
+        RRA
+        AND 0x80
+        SCF
+        CCF                    ; CLC = SCF + CCF
+        ADC A, B
+        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        ;/*
+        ;    709F                ADC #$13
+        ;    70A1                STA RandSeed2
+        ;*/
+        ADC A, 0x13
+        this.RandSeed2 := A
+        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        ;/*
+        ;    70A3                LDA RandSeed1
+        ;    70A5                ADC TempRand1
+        ;*/
+        B := this.TempRand1
+        C := this.TempRand2
+        A := this.RandSeed1
+        ADC A, B                ; ADC RandSeed1, TempRand1
+        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        ;/*
+        ;    70A8                ADC TempRand2
+        ;    70AB                STA RandSeed1
+        ;    70AD                RTS
+        ;*/
+        ADC A, C                ; ADC A, TempRand2
+        this.RandSeed1 := A
+        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        POP DE
+        POP BC
+        POP HL
+    }
+
+}
+

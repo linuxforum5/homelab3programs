@@ -1,0 +1,279 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pálya fölötti státusz sor object asm kódja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Status_LeftTopAddr:        EQU LeftTopAddr - 64
+Status_LeftTop2Addr:       EQU Status_LeftTopAddr - 64
+Status_Screen_Start:       EQU Status_LeftTopAddr + 1  ; Itt kezdődik majd a cache kiiratása a képernyőre
+
+Status_HighScoreText_Addr: EQU Status_Screen_Start + 39
+Status_HighScore_Addr:     EQU Status_Screen_Start + 44
+CAVE_START_ADDR:           EQU Status_HighScoreText_Addr+64*2
+LEVEL_START_ADDR:          EQU CAVE_START_ADDR+64*2
+
+MESSAGE_LINE1_CENTER_ADDRESS: EQU 0xF820
+MESSAGE_LINE2_CENTER_ADDRESS: EQU 0xF860
+
+;;; A státuszsorban a relatív pozíciók
+
+STATUS_CACHE:
+    DB "00",OBJECT_DIAMOND1_CHAR               ;;;  0.: szükséges gyémántok száma
+    DB "00  "                                  ;;;  3.: Egy gyémánt pontértéke
+    DB "00     "                               ;;;  7.: Az összegyűjtött gyémántok száma
+    DB OBJECT_PLAYER_CHAR,":3      "           ;;; 14.: Az életek száma
+    DB "000       "                            ;;; 22.: Az idő
+    DB "000000"                                ;;; 32.: A pontszám
+
+Status_Points_Cache_Addr:       EQU STATUS_CACHE + 32 ; A pont pozíciója
+Status_Timer_Cache_Addr:        EQU STATUS_CACHE + 22 ; Az idő pozíciója
+Status_Live_Cache_Addr:         EQU STATUS_CACHE + 14 ; A diamond counter pozíciója
+Status_DC_Cache_Addr:           EQU STATUS_CACHE + 7  ; A diamond counter pozíciója
+Status_DiamondPoint_Cache_Addr: EQU STATUS_CACHE + 3  ;
+Status_Need_D_Cache_Addr:       EQU STATUS_CACHE + 0  ;
+
+class Status extends PropertiesDirect {
+
+    DW diamonds         ; Gyémántok számlálója a pályán
+    DW need_d           ; Szükséges gyémántszám
+    DW scorePerDiamond  ; Egy gyémánt pontértéke
+    DW timer            ; hártralévő idő
+    DB ticks            ; 50-ed másodpercek számlálása
+
+    public hide_diamond_limit() {
+        LD A, OBJECT_DIAMOND1_CHAR
+        LD (Status_Need_D_Cache_Addr), A
+        LD (Status_Need_D_Cache_Addr+1), A
+    }
+
+    public init() {
+        this.diamonds := new BCD1( 0 )
+        this.need_d := new BCD1( Cave.open_counter )
+        this.scorePerDiamond := new BCD1( Cave.diamond_point )
+        this.scorePerDiamond.print( Status_DiamondPoint_Cache_Addr )
+        this.timer := new BCD2( Cave.time )
+        this.timer.print1( Status_Timer_Cache_Addr )
+        this.ticks := MAX_TIMER_TICK
+        this.clearStatusLineBg()
+        this.clearRightDataWindows()
+        this.show_player_lives()
+        this.show_cave()
+        this.show_level()
+        INFO.show_qhelp()
+        this.show_high_score()
+
+        GAME.points.print( Status_Points_Cache_Addr )
+        this.diamonds.print( Status_DC_Cache_Addr )
+        this.need_d.print( Status_Need_D_Cache_Addr )
+    }
+
+;    public show_cache() {
+;        LD HL, STATUS_CACHE
+;        LD DE, Status_Screen_Start
+;        LD BC, 38
+;        LDIR
+;    }
+
+    public wait() {
+        SCREEN_SHADOW.refresh_screen()
+        SCREEN_SHADOW.refresh_screen()
+        this.show_message0( "Press FIRE to continue ...@", MESSAGE_LINE2_CENTER_ADDRESS )
+        {
+            LD A,(KEYBOARD_SpaceCr_ADDR)
+            AND NOTHING_PRESSED
+        } until ( A != NOTHING_PRESSED )
+;        this.clear_message()
+    }
+
+    private clearStatusLineBg() { ; Csak border-t rajzol
+        LD HL, Status_LeftTop2Addr
+        LD (HL), 142                   ; Bal felső sarok
+        INC HL
+        LD (HL), 146                   ; Vízszintes vonal
+        LD BC, 50
+        LD DE, Status_LeftTop2Addr+2
+        LDIR
+        LD (HL), 143                   ; jobb felső sarok
+        LD HL, Status_LeftTop2Addr+39
+        LD (HL), 190                   ; Vízszintes és lefele
+        LD HL, Status_LeftTopAddr
+        LD (HL), 147                   ; Függőleges vonal
+        LD HL, Status_LeftTopAddr+39
+        LD (HL), 147                   ; Függőleges vonal
+    }
+
+    private clearRightDataWindows() {
+        ; Jobboldali ablakok előkészítése
+        this.clearRightRow( Status_HighScoreText_Addr-64, 143 ) ; jobb felső sarok
+        this.clearNextLine( HL )
+        this.clearRightRow( CAVE_START_ADDR-64, 159 )           ; függőleges és balra
+        this.clearNextLine( HL )
+        this.clearRightRow( LEVEL_START_ADDR-64, 159 )
+        this.clearNextLine( HL )
+        this.clearRightRow( LEVEL_START_ADDR+64, 145 )          ; Jobb alsó sarok
+    }
+
+    private clearRightRow( HL, A ) {
+        LD (HL), 146
+        PUSH HL
+        POP DE
+        PUSH HL
+        INC DE
+        LD BC, 11
+        LDIR
+        LD (HL), A           ; utolsó karakter
+        POP HL
+    }
+
+    private clearNextLine( HL ) {
+        LD DE, 64
+        ADD HL, DE
+        PUSH HL
+        POP DE
+        INC DE
+        LD BC, 11
+        LD (HL), OBJECT_SPACE_CHAR
+        LDIR
+        LD (HL), 147                   ; Függőleges vonal
+    }
+
+    public show_message( DE ) {       ; Verem
+        PUSH HL
+        this.show_message0( DE, MESSAGE_LINE1_CENTER_ADDRESS )
+        POP HL
+    }
+
+    public show_message0( DE, HL ) {       ; Verem veremben már a HL néha
+        PUSH BC                       ; 2
+        PUSH DE                       ; 3
+        LD BC, 0
+        ;LD HL, 0xF820                 ; Felső sor közepe
+        LD A, (DE)
+        while( A != '@' ) {
+            INC BC
+            INC DE
+            LD A, (DE)
+            if ( A != '@' ) {
+                DEC HL
+                INC BC
+                INC DE
+                LD A, (DE)
+            }
+        }
+        POP DE                        ; 2
+        DEC HL
+        LD (HL), 32
+        PUSH HL                       ; 3
+        PUSH BC                       ; 4
+        INC HL
+        EX DE, HL
+        LDIR
+        LD A, 32
+        LD (DE), A
+        POP BC                        ; 3
+        POP HL                        ; 2
+        LD DE, 64
+        ADD HL, DE
+        LD (HL), 32
+        PUSH HL                       ; 3
+        POP DE                        ; 2
+        INC DE
+        INC BC
+        LDIR
+        POP BC                        ; 1
+    }
+
+;    public clear_message() {
+;        LD HL, 0xF800
+;        for B = 128 to 1 {
+;            LD (HL), BG_CHAR
+;            INC HL
+;        }
+;    }
+
+    public set_new_scorePerDiamond( C ) {
+        this.scorePerDiamond.set_new_value( C )
+        this.scorePerDiamond.print( Status_DiamondPoint_Cache_Addr )
+    }
+
+    public timer_tick() { ; Egy 50-ed másodperc eltelt
+        A := PLAYER.in_flash
+        if ( A == 0 ) {
+            A := this.ticks
+            DEC A
+            if ( Z ) {
+                MAGICKANIM.countdown()
+                this.ticks := MAX_TIMER_TICK
+                this.timer.dec()
+                this.timer.cp( CLOCKDOWN_SOUND_LIMIT + 1 )
+                SOUNDS.timeout() if (CY)
+                this.timer.print1( Status_Timer_Cache_Addr )
+                this.timer.cp0()
+                ROBBANAS.timeout() if (Z)
+            } else {
+                this.ticks := A
+            }
+        }
+    }
+
+    public add_diamond() {
+        this.diamonds.inc()
+        this.diamonds.get_value_to_A() ; Az ajtónyitáshoz szükséges gyémántszám
+        Cave.check_open_door( A )
+        A := Cave.diamond_point
+        for B = A to 1 {
+            GAME.points.inc()
+        }
+        GAME.inc_diamond_sum_counter()
+        GAME.points.print( Status_Points_Cache_Addr )
+        this.diamonds.print( Status_DC_Cache_Addr )
+        this.scorePerDiamond.print( Status_DiamondPoint_Cache_Addr )
+    }
+
+    public show_cave() {
+        SCREEN.write_text( "CAVE: @", CAVE_START_ADDR )
+        A := GAME.cave
+        ADD A, 'A'
+        LD (HL), A
+    }
+
+    public show_level() {
+        SCREEN.write_text( "LEVEL: @", LEVEL_START_ADDR )
+        A := GAME.level
+        ADD A, '0'
+        LD (HL), A
+    }
+
+    public show_high_score() {
+        SCREEN.write_text( "HIGH:@", Status_HighScoreText_Addr )
+        GAME.high_score.print( Status_HighScore_Addr )
+    }
+
+    public show_player_lives() {
+        A := GAME.live_counter
+        ADD A, 48
+        LD (Status_Live_Cache_Addr+2), A
+    }
+
+    public addTimerToPoints() {
+        PUSH HL
+        PUSH BC
+        PUSH DE
+        this.timer.cp0()
+        while( NZ ) {
+            GAME.points.inc()
+            GAME.points.print( Status_Points_Cache_Addr )
+            this.timer.dec()
+            this.timer.print1( Status_Timer_Cache_Addr )
+            CALL ROM_WAIT_SCREEN
+            SCREEN_SHADOW.refresh_status_only()
+            this.timer.get_dec_val_to_A()
+            LD L, A
+            LD H, 3
+            CALL ROM_BEEP_H_L ; Hang kiadása: L=freq (f = 57692 / H Hz), H=hossz (~10.24*L ms)
+            this.timer.cp0()
+        }
+        POP DE
+        POP BC
+        POP HL
+    }
+
+}

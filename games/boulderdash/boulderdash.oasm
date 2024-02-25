@@ -1,0 +1,66 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Homelab III. Clock speed 4MHz. The Z80 T = 0.4us
+;;; Boulderdash
+;;; Betöltés után a 0x4000-tól
+;;; - 0x4000-0x402F : STACK
+;;; - 0x4030-439F   : Screen shadow 880 bájt
+;;; - 0x43A0        : program
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+include 'inc/rom.asm'
+include 'inc/keyboard.asm'
+include 'config.asm'
+include 'constants.asm'
+
+    ORG $43A0
+
+;    DI
+;    CALL ROM_SWITCH_PAGE_II ; helyett:
+    LD SP, $4030	;;; Az új SP értéke 4000-402F
+    OUT (0ffh), A	;;; A konkrét lapozás 1-re
+;    DEBUG := new Debug()
+
+    SCREEN_SHADOW := new ScreenShadow()
+    RND := new Random()
+    ROBBANAS := new Robbanas()
+    PUFFANAS := new Puffanas()
+    SOUNDS := new Sounds()
+    SCREEN := new Screen()
+    CONTROLLER := new Controller()
+    MODULO800 := new Modulo800()
+;    STATUS := new Status();
+    INFO := new Info()
+    PLAYER := new Player()
+    DIAMONDS := new Diamonds()
+    BUTTERFLIES := new Butterflies()
+    FIREFLIES := new Fireflies()
+    AMOEBAS := new Amoebas()
+    STONEGRAVITY := new GravityStone()
+    DIAMONDGRAVITY := new GravityDiamond()
+    MAGICKANIM := new MagickAnim()
+    Cave := new Cave()
+    GAME := new Game()
+    STATUS := new Status()
+    GAME.init()
+    {
+        CALL SHOW_START_SCREEN
+        GAME.init_new_game_Z()          ; F.Z == 1, ha kilép a játékból. Talán soha
+        {
+            {
+                SCREEN.wait_for_black() ; CALL ROM_WAIT_SCREEN
+                SCREEN_SHADOW.refresh_screen()
+                DIAMONDS.tick()
+                GAME.tick_Z();          ; F.Z == 0, amíg tart egy pálya
+            } until ( Z )
+            GAME.init_next_cave_Z()     ; Ha F.Z == 0, akkor következő élet vagy pálya. Ha F.Z == 1, akkor vége van a játéknak
+        } until ( Z )
+        GAME.save_if_new_highscore()
+    } until () ; forever loop
+
+; FREE_MEMORY_SIZE: EQU DEFAULT_STACK_POINTER - BOTTOM_OF_PROGRAM
+
+include 'startScreen/main.asm'
+include 'sound-effects.asm'
+
+SHOW_HIGHSCORE_TO_HL:
+    GAME.show_high_score_to( HL )
+    RET

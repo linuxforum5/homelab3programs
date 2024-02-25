@@ -1,0 +1,59 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 3 bájtoas BCD konverter object asm kódja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+class BCD3 extends BCD2 {
+
+    DB b3 ; Legnagyobb helyiérték
+
+    constructor( BC ) {
+        this.b1 := 0
+        this.b2 := 0
+        this.b3 := 0
+        LD A, B
+        OR C
+        while ( NZ ) {
+            PUSH BC
+            this.inc();
+            POP BC
+            DEC BC
+            LD A, B
+            OR C
+        }
+    }
+
+    public inc() {
+        parent.inc()
+        RET NC
+        C := this.b3
+        LD A, 1
+        ADD A, C
+        DAA
+        this.b3 := A
+    }
+
+    public dec() {
+        parent.dec() ; C regiszter értéke 1 lesz
+        RET NC
+        A := this.b3
+        SUB C
+        DAA
+        this.b3 := A
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL - A képernyőmemória kezdőcíme
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public print( HL ) {
+        this.print_byte( HL, this.b3 )
+        parent.print( HL )
+    }
+
+    public get_val3_A() {
+        A := this.b3
+    }
+    public set_val3( A ) {
+        this.b3 := A
+    }
+
+}

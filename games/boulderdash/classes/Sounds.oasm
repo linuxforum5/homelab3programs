@@ -1,0 +1,39 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Hang effektek
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+class Sounds extends PropertiesDirect {
+
+    public timeout() { ; Elfogyott az idő hangja
+        this.ping( 45 )
+    }
+
+    public diamond() { ; A gyémánt leesésének hangja
+        this.ping( 65 )
+    }
+
+    public open_door() { ; Az ajtó kinyílásának hangja
+        this.ping( 165 )
+    }
+
+    public extra_life() { ; Új élet
+        this.ping( 225 )
+    }
+
+    private ping( A ) {
+        EXX
+        LD C, 0
+        {
+            for B = A to 1 {
+                LD (SPEAKER_ON), A
+            }
+            for B = C to 1 {
+                LD (SPEAKER_OFF), A
+            }
+            INC C
+            DEC A
+        } until ( Z )
+        EXX
+    }
+
+}

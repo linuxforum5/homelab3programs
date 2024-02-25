@@ -1,0 +1,44 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pályán lévő gyémántok animációinak kezelése
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;MAX_DIAMOND_COUNTER: EQU 178 ; Ez a legtöbb gyémánt egy pályán. Mivel az amőbás pályán is max 120 másodperce van, így ott is belefér ebbe
+
+class Diamonds extends PropertiesDirect {
+
+    DW current_pointer1     ; Az aktuális elem
+    DW current_pointer2     ; Az aktuális elem
+
+    DIAMONDS_STEP1: EQU 373
+    DIAMONDS_STEP2: EQU 573
+
+    constructor() {
+        this.current_pointer1 := MODULO_800_START_ADDRESS+51
+        this.current_pointer2 := MODULO_800_START_ADDRESS+251
+    }
+
+    public tick() {
+        HL := this.current_pointer1
+        this.tick_HL( DIAMONDS_STEP1, HL )
+        this.current_pointer1 := HL
+        HL := this.current_pointer2
+        this.tick_HL( DIAMONDS_STEP2, HL )
+        this.current_pointer2 := HL
+    }
+
+    public tick_HL( DE, HL ) {
+        for B = 8 to 1 {
+            LD A, (HL)
+            if ( A == OBJECT_DIAMOND1_CHAR ) {
+                LD (HL), OBJECT_DIAMOND2_CHAR
+            } else if ( A == OBJECT_DIAMOND2_CHAR ) {
+                LD (HL), OBJECT_DIAMOND1_CHAR
+            }
+            PUSH BC
+            PUSH DE
+            MODULO800.add_to_HL( DE, HL )
+            POP DE
+            POP BC
+        }
+    }
+
+}

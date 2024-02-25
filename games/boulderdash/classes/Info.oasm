@@ -1,0 +1,42 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pálya melleti elhagyható információk
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+QHELP_START: EQU FIRST_USED_LINE_ADDR
+
+class Info extends PropertiesDirect {
+
+    private show_qhelp() {
+        this.printat( QHELP_START,       HLINE,         146,                      143 )
+        this.printat( QHELP_START+ 1*64, "Player   :@", OBJECT_PLAYER_CHAR,       147 )
+        this.printat( QHELP_START+ 2*64, "Earth    :@", OBJECT_DIRT_CHAR,         147 )
+        this.printat( QHELP_START+ 3*64, "Stone    :@", OBJECT_STONE_CHAR,        147 )
+        this.printat( QHELP_START+ 4*64, "Diamond  :@", OBJECT_DIAMOND1_CHAR,     147 )
+        this.printat( QHELP_START+ 5*64, "Firefly  :@", OBJECT_FIREFLY1_CHAR,     147 )
+        this.printat( QHELP_START+ 6*64, "Butterly :@", OBJECT_BUTTERFLY1_CHAR,   147 )
+        this.printat( QHELP_START+ 7*64, "Amoeba   :@", OBJECT_AMOEBA_CHAR,       147 )
+        this.printat( QHELP_START+ 8*64, "Exit     :@", OBJECT_OPENED_DOOR_CHAR,  147 )
+        this.printat( QHELP_START+ 9*64, "Wall     :@", OBJECT_WALL_CHAR,         147 )
+        this.printat( QHELP_START+10*64, "Magick W.:@", OBJECT_MAGICK_WALL1_CHAR, 147 )
+        this.printat( QHELP_START+11*64, "Steel    :@", OBJECT_STEEL_CHAR,        147 )
+        this.printat( QHELP_START+12*64, HLINE,         146,                      145 )
+
+        this.printat( QHELP_START+15*64, HLINE,         146,                      143 )
+        this.printat( QHELP_START+16*64, "-=Control=@", '-',                      147 )
+        this.printat( QHELP_START+17*64, " Left:  K @", 10,                       147 )
+        this.printat( QHELP_START+18*64, " Right: L @", 11,                       147 )
+        this.printat( QHELP_START+19*64, " Up:    J @", 08,                       147 )
+        this.printat( QHELP_START+20*64, " Down:  M @", 09,                       147 )
+        this.printat( QHELP_START+21*64, " Quit:  Q @", 32,                       147 )
+        this.printat( QHELP_START+22*64, HLINE,         146,                      145 )
+    }
+
+HLINE: DB 146,146,146,146,146,146,146,146,146,146,'@'
+
+    private printat( HL, DE, B, C ) {
+        SCREEN.write_text( DE, HL )
+        LD (HL), B
+        INC HL
+        LD (HL), C
+    }
+
+}

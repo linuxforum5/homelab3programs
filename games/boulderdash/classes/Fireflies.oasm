@@ -1,0 +1,128 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pályán lévő tűzlegyek animációinak kezelése
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+MAX_FIREFLY_COUNTER: EQU 30
+FireflyPuffer: DS MAX_FIREFLY_COUNTER*3, 0
+
+class Fireflies extends Flies {
+
+    DW first_free_addr
+    DB counter
+    DB tick_speed_counter
+
+    public init() {
+        this.first_free_addr := FireflyPuffer
+        this.counter := 0
+        this.tick_speed_counter := FIREFLY_TICK_SPEED
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL-ben a karakter képernyőcíme
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public append( HL ) {
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        POP BC
+        PUSH BC
+        A := this.counter
+        HL := this.first_free_addr
+        LD (HL), C
+        INC HL
+        LD (HL), B
+        INC HL
+        LD (HL), DIRECTION_RIGHT
+        INC HL
+        this.first_free_addr := HL
+        INC this.counter
+        POP HL
+        POP DE
+        POP BC
+    }
+
+    public remove( HL ) {
+        A := this.counter
+        if ( A != 0 ) {
+            PUSH HL
+            LD DE, FireflyPuffer
+            LD C, 0
+            for B = A to 1 {
+                LD A, (DE)
+                if ( A == L ) {
+                    INC DE
+                    LD A, (DE)
+                    DEC DE
+                    if ( A == H ) {
+                        this.drop_pointer( DE )
+                        DEC this.counter
+                        POP HL
+                        RET
+                    }
+                }
+                INC DE ; INC address.L
+                INC DE ; INC address.H
+                INC DE ; INC direction
+                INC C
+            }
+            POP HL
+        }
+    }
+
+    private drop_pointer( DE ) { ; DE-ben a kidobandó poinnter címe
+        HL := this.first_free_addr
+        DEC HL
+        DEC HL
+        DEC HL
+        this.first_free_addr := HL
+        LD A, (HL)
+        LD (DE), A
+        INC HL
+        INC DE
+        LD A, (HL)
+        LD (DE), A
+        INC HL
+        INC DE
+        LD A, (HL)
+        LD (DE), A
+    }
+
+    public tick() {
+        DEC this.tick_speed_counter
+        if ( Z ) {
+            this.tick_speed_counter := FIREFLY_TICK_SPEED
+            A := this.counter
+            if ( A != 0 ) {
+                this.anim_and_fly_all();
+            }
+        }
+    }
+
+    private anim_and_fly_all() {
+        A := this.counter
+        LD HL, FireflyPuffer
+        for B = A to 1 {
+            LD E, (HL)
+            INC HL
+            LD D, (HL)
+            INC HL
+            LD C, (HL) ; C-ben az irány, HL-ben az irány címe
+            ;;; Címbájtok beolvasva
+            LD A, (DE)
+            if ( A == OBJECT_FIREFLY1_CHAR ) {
+                LD A, OBJECT_FIREFLY2_CHAR
+            } else if ( A == OBJECT_FIREFLY2_CHAR ) {
+                LD A, OBJECT_FIREFLY1_CHAR
+            }
+            LD (DE), A
+            EX AF, AF'         ; A'-be bekerül az új alak
+            ;;; új alak betöltve
+            PUSH BC
+            PUSH HL
+            this.fly_DE_Left_to( HL, DE, C ) ; A DE címen lévő repülő repültetése
+            POP HL
+            POP BC
+            INC HL
+        }
+    }
+
+}

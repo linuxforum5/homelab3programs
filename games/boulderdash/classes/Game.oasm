@@ -1,0 +1,139 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A járékot vezérlő főmodul
+;;; Publikus műveletei:
+;;; .init_new_game_Z()       Inicializál egy telejsen új játékot Z=1 kilépés esetén, de ilyen egyelőre nincs
+;;; .init_next_cave_Z()      A következő szint inicializálása Z=1, ha vége a játéknak
+;;; .init_level()            Az aktuális szint inicializálása, indítása/újraindítása
+;;; .save_if_new_highscore() Menti a pontot, ha kell
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+class Game extends PropertiesDirect {
+
+    DB cave
+    DB level
+    DB live_counter
+    DB diamond_sum_counter ; Csak az elsp 200 gyémántig, a plus életek miatt. Utána már nincs bonus life
+    DW points           ; A pontszámláló          BCD3
+    DW high_score       ; A high score tárolója   BCD3
+
+    public init() { ; Ezeket majd a startScreen állítja, mi csak inicializáljuk
+        this.high_score := new BCD3( START_HIGHSCORE )
+    }
+
+    public show_high_score_to( HL ) {
+        this.high_score.print( HL )
+    }
+
+    public init_new_game_Z() { ; A képernyőn még látszik a (CAVE_POS) és a (LEVEL_POS) címeken a kért érték
+        this.points := new BCD3( 0 )
+        LD A, (CAVE_POS)
+        SUB 'A'
+        this.cave := A     ; [ A-T ]
+        LD A, (LEVEL_POS)
+        SUB '0'
+        this.level := A   ;  [ 1-5 ]
+        this.diamond_sum_counter := 0
+        this.live_counter := 3
+        this.init_level()
+        XOR A
+        INC A  ; Clear Z flag
+    }
+
+    public save_if_new_highscore() {
+        this.high_score.get_val3_A()
+        LD B, A
+        this.points.get_val3_A()
+        CP B
+        RET C            ; B > A => high_score > points
+        if ( Z ) {       ; B == A => ???
+            this.high_score.get_val2_A()
+            LD B, A
+            this.points.get_val2_A()
+            CP B
+            RET C            ; B > A => high_score > points
+            if ( Z ) {       ; B == A => ???
+                this.high_score.get_val1_A()
+                LD B, A
+                this.points.get_val1_A()
+                CP B
+                RET C            ; B > A => high_score > points
+                if ( Z ) {       ; B == A => high_score == points
+                    ; SKIP
+                } else {         ; A > B => high_score < points
+                    this.high_score.set_val1( A )
+                }
+            } else {         ; A > B => high_score < points
+                this.high_score.set_val2( A )
+                this.points.get_val1_A()
+                this.high_score.set_val1( A )
+            }
+        } else {         ; A > B => high_score < points
+            this.high_score.set_val3( A )
+            this.points.get_val2_A()
+            this.high_score.set_val2( A )
+            this.points.get_val1_A()
+            this.high_score.set_val1( A )
+        }
+    }
+
+    private init_level() {
+        SCREEN.fill( BG_CHAR, 64*32-1 )
+        SCREEN.fill( OBJECT_SPACE_CHAR, 64*1-1 )
+        Cave.init_show( this.cave )
+        STATUS.init()
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Add extra life if sum_counter == 14,38,120,200
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public inc_diamond_sum_counter() {
+        A := this.diamond_sum_counter
+        INC A
+        if ( NZ ) { ; Increment if not zero
+            this.diamond_sum_counter := A
+            if ( A == 14 ) {
+                this.inc_live();
+            } else if ( A == 38 ) {
+                this.inc_live();
+            } else if ( A == 120 ) {
+                this.inc_live();
+            } else if ( A == 200 ) {
+                this.inc_live();
+            }
+        }
+    }
+
+    private inc_live() {
+        INC this.live_counter
+        STATUS.show_player_lives()
+        SOUNDS.extra_life()
+    }
+
+    public init_next_cave_Z() {   ; F.Z == 1. ha vége a játéknak
+        A := this.live_counter
+        if ( A != 0 ) {
+            this.init_level();
+            OR 1   ; Clear F.Z
+        }
+    }
+
+    public tick_Z() {            ; F.Z == 1, ha vége a pályának
+        A := PLAYER.in_game      ; Meghalt, vagy befejezte
+        if ( A != 0 ) {          ; Még életben, azaz még tart ez a pálya
+;;;            DIAMONDS.flash_current_diamond() ; tick/2
+;            STATUS.show_cache();
+
+            PLAYER.check_speed_NZ() ; Ha Z=1, akkor mozoghat a játékos
+            CONTROLLER.get_direction_to_A_Z() if ( NZ ); Z=0, ha nincs irány, különben a 4 kurzos kód valamelyike
+            PLAYER.move_player( A ) if ( NZ )
+;;;            DIAMONDS.rnd_next() ; tick()/2
+            BUTTERFLIES.tick()
+            FIREFLIES.tick()
+            STONEGRAVITY.tick()
+            DIAMONDGRAVITY.tick()
+            AMOEBAS.tick()
+            STATUS.timer_tick()
+            OR 1   ; Clear F.Z
+        }
+    }
+
+}

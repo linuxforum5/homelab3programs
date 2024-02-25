@@ -1,0 +1,32 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Modulo 800 maradékosztály
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+class Modulo800 extends PropertiesDirect {
+
+    BASE_VALUE:    EQU 800
+    MODULO_800_START_ADDRESS: EQU CAVE_PUFFER + SHADOW_LINE_LENGTH
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL-hez hozzáadja DE értékét úgy, hogy HL értéke a megadott tartományon belül marad, azaz a BASE_VALUE területen belül túlcsordulhat
+    ;;; HL = [ START_ADDR - START_ADDR+BASE_VALUE-1 ]
+    ;;; DE = [ 0 - BASE_VALUE-1 ]
+    ;;; Az eredmény HL-be kerül
+    ;;; BC és DE értéke elromlik
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public add_to_HL( DE, HL ) {                          ;;;;;;;;;;;;;;;; HL := HL + DE % 800 ;;;;;;;;;; Feltételezi, hogy HL és DE is 0-799 között van
+        ADD HL, DE                                        ; HL := HL + DE
+        LD D, H                                           ;
+        LD E, L                                           ; DE := HL
+        LD BC, MODULO_800_START_ADDRESS + BASE_VALUE      ; BC := Az első overflow érték
+        OR A                                              ; Clear carry flag
+        SBC HL, BC                                        ; HL := HL - BC
+        if ( NCY ) {                                      ; HL >= BC, azaz már a pufferen kívülre mutat. Ekkor HL az amennyivel túlmutat
+            LD BC, MODULO_800_START_ADDRESS
+            ADD HL, BC                                    ; HL-ben a túlcsordult érték
+        } else {
+            LD H, D
+            LD L, E                                       ; DE-ben a következő cím
+        }
+    }
+
+}

@@ -1,0 +1,42 @@
+class Screen extends PropertiesDirect {
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; A DE címen tárolt string kiiratása a képernyő HL címétől kezdődően. A string végét a '@' karakter jelzi.
+    ;;; Visszatérés után HL-ben a következő képernyőpozíció címe
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private write_text( DE, HL ) {
+        LD A, (DE)
+        {
+            LD (HL), A
+            INC HL
+            INC DE
+            LD A, (DE)
+        } until ( A == '@' )
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; A képernyő kifestése az adott kódú karakterrel. Space esetén CALL ROM_CLS
+    ;;; A - A karakter, amivel ki kell festeni a képernyő első BC karakterét
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public fill( A, BC ) { ; static is!
+        LD HL, SCREEN
+        LD DE, SCREEN+1
+        LD (HL), A
+        LDIR
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Képszinkron kivárása. CALL ROM_WAIT_SCREEN3
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public wait_for_black() {
+        {
+            LD A, (0xE802)
+            RRA
+        } until( NCY ) ; Kivárjuk az előző képszinkron végét, ha épp abban lennénk, azaz addig fut, míg a 0. bit 0 nem lesz
+        {
+            LD A, (0xE802)
+            RRA
+        } until( CY ) ; Addig fut, míg a 0. bit 1-es nem lesz. Ha 1, akkor van képszinkron, akkor engedi tovább.
+    }
+
+}

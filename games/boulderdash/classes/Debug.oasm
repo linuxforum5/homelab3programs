@@ -1,0 +1,111 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Egyszerű DEBUG objektum
+;;; A bal felső sarokba ki tud írni egy számot
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+class Debug extends PropertiesDirect {
+
+    public wait() {
+        PUSH DE
+        STATUS.show_message( "Press SPACE to continue ...@" )
+        {
+            LD A,(KEYBOARD_SpaceCr_ADDR)
+            AND NOTHING_PRESSED
+        } until ( A != NOTHING_PRESSED )
+        STATUS.clear_message()
+        POP DE
+    }
+
+    public MSG( HL ) {
+        LD DE, 0xF800
+        {
+            LD A, (HL)
+            LD (DE), A
+            INC HL
+            INC DE
+        } until ( A == '!' )
+        HALT
+    }
+
+    public show_HL( HL ) {
+        PUSH HL
+        PUSH AF
+        this.show_num1( H )
+        this.show_num2( L )
+        POP AF
+        POP HL
+    }
+
+    public show_num1( A ) {
+        PUSH AF
+        SRL A
+        SRL A
+        SRL A
+        SRL A
+        this.jegy_A( A )
+        LD (0xF800), A
+
+        POP AF
+        PUSH AF
+        this.jegy_A( A )
+        LD (0xF801), A
+        POP AF
+    }
+
+    public show_num2( A ) {
+        PUSH AF
+        SRL A
+        SRL A
+        SRL A
+        SRL A
+        this.jegy_A( A )
+        LD (0xF802), A
+
+        POP AF
+        PUSH AF
+        this.jegy_A( A )
+        LD (0xF803), A
+        POP AF
+    }
+
+    public show_num3( A ) {
+        PUSH AF
+        SRL A
+        SRL A
+        SRL A
+        SRL A
+        this.jegy_A( A )
+        LD (0xF804), A
+
+        POP AF
+        PUSH AF
+        this.jegy_A( A )
+        LD (0xF805), A
+        POP AF
+    }
+
+    public show_num4( A ) {
+        PUSH AF
+        SRL A
+        SRL A
+        SRL A
+        SRL A
+        this.jegy_A( A )
+        LD (0xF806), A
+
+        POP AF
+        PUSH AF
+        this.jegy_A( A )
+        LD (0xF807), A
+        POP AF
+    }
+
+    private jegy_A( A ) {
+        AND 0x0F
+        ADD A, 0x30 ; 48 '0'
+        CP 58
+        JR C, DEBUG_JEGY
+        ADD A, 7    ; 'A'
+DEBUG_JEGY:
+    }
+
+}

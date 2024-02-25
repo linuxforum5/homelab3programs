@@ -1,0 +1,115 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 1 bájtoas BCD konverter object asm kódja
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+class BCD1 extends PropertiesIX {
+
+    DB b1 ; A legkisebb helyiérték
+
+    constructor( C ) {
+        this.set_new_value( C )
+    }
+
+    public set_new_value( C ) {
+        this.b1 := 0
+        LD A, C
+        while ( A != 0 ) {
+            PUSH BC
+            this.inc();
+            POP BC
+            DEC C
+            LD A, C
+        }
+    }
+
+    public get_value_to_A() {
+        A := this.b1
+        PUSH BC
+        LD C, A
+        AND 0xF0
+        SRL A
+        LD B, A
+        SRL A
+        SRL A
+        ADD A, B
+        LD B, A
+        LD A, C
+        AND 0x0F
+        ADD A, B
+        POP BC
+    }
+
+    public inc() {
+        C := this.b1
+        LD A, 1
+        ADD A, C
+        DAA
+        this.b1 := A
+    }
+
+    public dec() {
+        LD C, 1
+        A := this.b1
+        SUB C
+        DAA
+        this.b1 := A
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL - A képernyőmemória kezdőcíme
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public print( HL ) {
+        this.print_byte( HL, this.b1 )
+    }
+
+    BCD_TEMP_BYTE: DB 0
+
+    protected print_byte( HL, A ) { ; A vezető 0-ákat is kiírja
+TEVE:
+        PUSH HL
+        LD HL, BCD_TEMP_BYTE
+        LD (HL), A
+        LD A, 48
+        RLD
+        EX (SP), HL
+        LD (HL), A
+        INC HL
+        EX (SP), HL
+        RLD
+        EX (SP), HL
+        LD (HL), A
+        INC HL
+        EX (SP), HL
+        POP HL
+    }
+
+    protected print1_byte( HL, A ) { ; Az első számjegy ha 0, akkor nem írja ki
+        PUSH HL
+        LD HL, BCD_TEMP_BYTE
+        LD (HL), A
+        LD A, 48
+        RLD
+        EX (SP), HL
+        if ( A == '0' ) {
+            LD (HL), OBJECT_SPACE_CHAR
+        } else {
+            LD (HL), A
+        }
+        INC HL
+        EX (SP), HL
+        RLD
+        EX (SP), HL
+        LD (HL), A
+        INC HL
+        EX (SP), HL
+        POP HL
+    }
+
+    public get_val1_A() {
+        A := this.b1
+    }
+    public set_val1( A ) {
+        this.b1 := A
+    }
+
+}

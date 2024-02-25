@@ -1,0 +1,179 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pályán lévő amőbák kezelése
+;;; Az amőbákat nem tároljuk külön, a képernyőről olvassuk be
+;;; Random terjeszkednek
+;;; Ha a nyitott cellák száma elég egy limitet (mondjuk > 32), vagy az amőbák száma elkér egy limitet, akkor 
+;;; begyorsulva terjes, megáll, és minden kővé válik
+;;; G pályán a kövek száma 106, így maximum 149 kő jöhet még hozzá
+;;; Az amoebaMaxSize = 200 Ha az amőbák száma nagyobb, mint ez, akkor kövekké fog válni, nem gyémánttá
+;;; Az amoebaSlowGrowthTime értéke azt mutatja meg, mennyi ideig lassú az amőbák növekedése
+;;; A növekedés szabálya: Ha grow és a kiválasztott véletlen irányban szabad vagy föld, akkor növekedhet
+;;; - grow = this.amoeba.slow ? (randomInt(1, 128) < 4) : (randomInt(1, 4) == 1)
+;;; - dir  = randomChoice( [ DIR.UP, DIR.DOWN, DIR.LEFT, DIR.RIGHT ] )
+;;; if ( grow && in(dir, dirt or space ) ) set( OBJECT.AMOEBA, dir )
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+FirstAddr:  EQU CAVE_PUFFER + SHADOW_LINE_LENGTH + 1 ; Az első nem fal cella címe a képernyőn shadow memóriában
+ColCounter: EQU 38 ; Ennyi oszlopban lehet amőba
+RowCounter: EQU 20 ; Ennyi sorban kell keresni amőbát
+
+class Amoebas extends PropertiesDirect {
+
+    DB tick_speed_counter
+    DB counter             ; A kiindulási amőbák száma. Ha 0, akkor nem kell a képernyőt végigolvasni
+    DB open_cell_counter   ; Az eddig megtalált nyitott cellák száma. Ezeken terjedhet
+    DB slow_counter        ; Amíg ez nem 0, addig lassan növekszik
+
+    public init( A ) {
+        this.slow_counter := A
+        this.tick_speed_counter := AMOEBA_SLOW_TICK_SPEED
+        this.counter := 0
+        RND.init( 0, 1 )
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL-ben a karakter képernyőcíme a pufferben
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public append() {
+        A := this.counter
+        INC A
+        this.counter := A
+    }
+
+    private change() {
+        LD C, OBJECT_DIAMOND1_CHAR
+        A := this.counter
+        CP AMOEBA_STONE_LIMIT
+        if ( NCY ) {
+            LD C, OBJECT_STONE_CHAR
+        }
+        this.counter := 0
+        LD HL, FirstAddr
+        for B = RowCounter to 1 {
+            this.changeAllInLine_HL( HL, C )
+        }
+    }
+
+    private changeAllInLine_HL( HL, C ) {
+        PUSH BC
+        for B = ColCounter to 1 {
+            LD A, (HL)
+            if ( A == OBJECT_AMOEBA_CHAR ) {
+                this.change_cell( HL, C )
+            }
+            INC HL
+        }
+        LD DE, SHADOW_LINE_LENGTH - ColCounter
+        ADD HL, DE
+        POP BC
+    }
+
+    private change_cell( HL, C ) {
+        LD A, C
+        if ( A == OBJECT_DIAMOND1_CHAR ) {
+            DIAMONDGRAVITY.append( HL )
+        } else {
+            STONEGRAVITY.append( HL )
+        }
+        LD (HL), C
+    }
+
+    public tick() {
+        A := this.counter
+        if ( A != 0 ) {              ; Van amőba
+            dec this.tick_speed_counter
+            if ( Z ) {               ; Következő hasznos ütem
+                A := this.slow_counter
+                if ( A != 0 ) {      ; slow counter csökkentése, ha még lehet
+                    DEC this.slow_counter
+                    this.tick_speed_counter := AMOEBA_SLOW_TICK_SPEED
+                } else {
+                    this.tick_speed_counter := AMOEBA_FAST_TICK_SPEED
+                }
+                this.flow();
+            }
+        }
+    }
+
+    private flow() { ; Dagad vagy gyémánttá válik
+        this.open_cell_counter := 0
+        A := this.counter
+        CP AMOEBA_STONE_LIMIT
+        if ( CY ) {
+            LD C, RowCounter
+            LD HL, FirstAddr
+            for B = RowCounter to 1 {
+                this.searchOpenCellInLine_HL( HL )
+            }
+        }
+        A := this.open_cell_counter
+        if ( A == 0 ) { ; Nincs szabad él
+            this.change();
+            this.counter := 0
+        }
+    }
+
+    private searchOpenCellInLine_HL( HL ) {
+        PUSH BC	
+        for B = ColCounter to 1 {
+            LD A, (HL)
+            if ( A == OBJECT_AMOEBA_CHAR ) {
+                this.found_amoeba_HL( HL )
+            }
+            INC HL
+        }
+        LD DE, SHADOW_LINE_LENGTH - ColCounter
+        ADD HL, DE
+        POP BC
+    }
+
+    private found_amoeba_HL( HL ) { ; Ebben a cellában amőba van. HL
+        ;;; Check up
+        LD DE, -SHADOW_LINE_LENGTH
+        ADD HL, DE
+        this.check_flow( HL )
+        LD DE, SHADOW_LINE_LENGTH
+        ADD HL, DE
+        ;;; Check left
+        DEC HL
+        this.check_flow( HL )
+        INC HL
+        ;;; Check right
+        INC HL
+        this.check_flow( HL )
+        DEC HL
+        ;;; Check down
+        LD DE, SHADOW_LINE_LENGTH
+        ADD HL, DE
+        this.check_flow( HL )
+        LD DE, -SHADOW_LINE_LENGTH
+        ADD HL, DE
+        ;;; end
+    }
+
+    private check_flow( HL ) {
+        LD A, (HL)
+        if ( A == OBJECT_SPACE_CHAR ) {
+            this.found_free_useable_cell( HL )
+        } else if ( A == OBJECT_DIRT_CHAR ) {
+            this.found_free_useable_cell( HL )
+        }
+    }
+
+    private found_free_useable_cell( HL ) {
+        A := this.counter
+        if ( A == AMOEBA_STONE_LIMIT ) {
+            inc this.open_cell_counter
+        } else {
+            RND.get_next_value_to_A()
+            CP AMOEBA_RANDOM_LIMIT ; SLOW és fast módban is azonos érték
+            if ( CY ) {
+                LD (HL), OBJECT_AMOEBA_CHAR
+                inc this.counter
+            } else {                 ; Van még nyitott irány
+                inc this.open_cell_counter
+            }
+        }
+    }
+
+}

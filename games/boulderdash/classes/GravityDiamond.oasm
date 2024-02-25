@@ -1,0 +1,250 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; A pályán lévő kövek gyémántok gravitációs asm kódja: helyzete, lendülete és gravitációja, de a villogásuk nem
+;;; Tetszőleges számú gyémánt kezelésével
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;DiamondGravityPuffer: DS MAX_DIAMOND_COUNTER*3, 0
+
+class GravityDiamond extends PropertiesDirect {
+
+    DW first_free_addr
+    DB tick_speed_counter
+
+    public init() {
+        this.first_free_addr := DiamondGravityPuffer
+        this.tick_speed_counter := GRAVITY_TICK_SPEED
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL-ben a kő vagy a gyémánt képernyőcíme
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    public append( HL ) {
+        PUSH HL
+        PUSH DE
+        EX DE, HL
+        HL := this.first_free_addr
+        LD (HL), E     ; Képernyő cím LOW
+        INC HL
+        LD (HL), D     ; Képernyő cím HIGH
+        INC HL
+        LD (HL), 0     ; Lendület
+        INC HL
+        this.first_free_addr := HL
+        POP DE
+        POP HL
+    }
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; HL értékre mutató mutatót keres, ha talál, Z=0 és DE a pointer címe
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    private find_pointer_Z_DE( HL ) {  ; Z = 0, ha van HL elem. HL nem változik. DE-ben a pointer címe
+        LD DE, DiamondGravityPuffer
+        EX DE, HL
+        this.is_eof( HL )        ; Z = 1, ha HL a vége mutató címe
+        while( NZ ) { ; Még van elem, HL az aktuális pointer kezdőcíme
+            LD A, (HL)
+            if ( A == E ) { ; Lehet a keresett elem
+                INC HL
+                LD A, (HL)
+                if ( A == D ) { ; Ez a keresett elem
+                    DEC HL      ; Visszaállunk a kezdőcímre
+                    AND 0       ; set Z
+                } else {
+                    INC HL
+                    INC HL
+                    this.is_eof( HL )        ; Z = 1, ha HL a vége muitató címe
+                }
+            } else {
+                INC HL
+                INC HL
+                INC HL
+                this.is_eof( HL )        ; Z = 1, ha HL a vége muitató címe
+            }
+        }
+        this.is_eof( HL )        ; Z := 1, ha HL a vége muitató címe
+        EX DE, HL                ; HL cím visszaállítása, DE a pointerm ha megtalálta
+    }
+
+    private is_eof( HL ) {       ; Z=1, ha HL a végére mutat, azaz üresre, BC-t elrontja
+        A := this.first_free_addr
+        if ( A == L ) {
+            A := this.first_free_addr+1
+            if ( A == H ) { ; Ha igaz, akkor Z==1
+                RET            ; F.Z = 1
+            } ; Itt F.Z biztos nem 1
+        } ; Itt F.Z biztos nem 1
+    }                          ; F.Z = 0
+
+    public remove( HL ) {
+        PUSH HL
+        this.find_pointer_Z_DE( HL ) ; Z=0, ha megvan
+        if ( NZ ) {                  ; Megvan az elem, lehet törölni
+            EX DE, HL                ; DE-be kerül a törlendő képernyőcím
+            HL := this.first_free_addr
+            DEC HL
+            DEC HL
+            DEC HL
+            this.first_free_addr := HL    ; Lecsökkentjük a végemutatót
+            EX DE, HL                     ; HL-ben ismét a törlendő képernyőcím
+            this.find_pointer_Z_DE( HL )  ; Z=0, ha megvan
+            if ( NZ ) {                   ; Megvan az elem, azaz nem az utolsó elemet töröltük. Ez esetben az utolsó címén hasznos elem van
+                HL := this.first_free_addr
+                LD A, (HL)
+                LD (DE), A   ; 1. bájt másolása a végéről
+                INC DE
+                INC HL
+                LD A, (HL)
+                LD (DE), A   ; 2. bájt másolása a végéről
+                INC DE
+                INC HL
+                LD A, (HL)
+                LD (DE), A   ; 3. bájt másolása a végéről
+            } ; else Az utolsó elemet töröltük, nincs teendőnk
+;        } else {
+;DEBUG.MSG( "STONE NOT FOUND IN REMOVE" )
+        }
+        POP HL
+    }
+
+    public tick() {
+        DEC this.tick_speed_counter
+        if ( Z ) {
+            this.tick_speed_counter := GRAVITY_TICK_SPEED
+            LD HL, DiamondGravityPuffer
+            this.is_eof( HL )            ; Z=1, ha eof
+            while ( NZ ) {
+                PUSH HL
+                this.tick1( HL )         ; A HL kő egy lépése
+                POP HL
+                this.is_eof( HL )        ; Z=1, ha eof Mivel lehetett törlés, itt is ellenőrizni kell
+                if ( NZ ) {
+                    INC HL
+                    INC HL
+                    INC HL
+                    this.is_eof( HL )        ; Z=1, ha eof
+                }
+            }
+        }
+    }
+
+    public tick1( HL ) {                 ; Egy kő egy l épése HL a cím pointere
+        PUSH HL
+        LD C, (HL)
+        INC HL
+        LD B, (HL)
+        INC HL
+        EX DE, HL        ; DE-ben a lendület pointerének cím
+        LD HL, SHADOW_LINE_LENGTH
+        ADD HL, BC       ; HL-be így bekerül az alatta lévő cím, BC-ben az eredeti cím
+        LD A, (HL)       ; A-ba a kő alatti karakter, ahova a kő esni fog
+        IF ( A == OBJECT_SPACE_CHAR ) { ; A kő alatt üresség van, leesik
+            LD A, 1
+            LD (DE), A                                    ; Lendületadás
+            this.move_to( BC, DE, HL)
+        } else if ( A == OBJECT_STONE_CHAR ) {               ; Alatta kő van, akkor még legurulhat
+            this.check_left_right( BC, DE, HL )
+        } else if ( A == OBJECT_WALL_CHAR ) {         ; Alatta fal van, akkor még legurulhat
+            this.check_left_right( BC, DE, HL )
+        } else if ( A == OBJECT_MAGICK_WALL1_CHAR ) {  ; Alatta mágikus fal van ...
+            LD A, (DE)
+            CP 0
+            this.check_magick( BC, DE, HL ) if ( NZ )  ; Ha van lendülete
+        } else if ( A == OBJECT_MAGICK_WALL2_CHAR ) {  ; Alatta mágikus fal van ...
+            LD A, (DE)
+            CP 0
+            this.check_magick( BC, DE, HL ) if ( NZ )  ; Ha van lendülete
+        } else if ( A == OBJECT_DIAMOND1_CHAR ) {     ; Alatta gyémánt van, akkor még legurulhat
+            this.check_left_right( BC, DE, HL )
+        } else if ( A == OBJECT_DIAMOND2_CHAR ) {     ; Alatta gyémánt van, akkor még legurulhat
+            this.check_left_right( BC, DE, HL )
+        } else if ( A == OBJECT_STEEL_CHAR ) {        ; Alatta ajtó van
+            this.check_left_right( BC, DE, HL )
+        } else if ( A == OBJECT_OPENED_DOOR_CHAR ) {  ; Alatta ajtó van
+            this.check_left_right( BC, DE, HL )
+        } else if ( A == OBJECT_BUTTERFLY1_CHAR ) {   ; Alatta pillangó van
+            ROBBANAS.butterfly( HL )
+        } else if ( A == OBJECT_BUTTERFLY2_CHAR ) {   ; Alatta pillangó van
+            ROBBANAS.butterfly( HL )
+        } else if ( A == OBJECT_FIREFLY1_CHAR ) {     ; Alatta tűzlégy van
+            ROBBANAS.firefly( HL )
+        } else if ( A == OBJECT_FIREFLY2_CHAR ) {     ; Alatta tűzlégy van
+            ROBBANAS.firefly( HL )
+        } else if ( A == OBJECT_PLAYER_CHAR ) {       ; Alatta játékos van. Ha a kő még áll, az nem baj, de ha már esik, akkor gáz van. (Ugyanez lesz a pillangóknál is?)
+            LD A, (DE )
+            CP 0
+            ROBBANAS.diamond_kill_player( HL ) if ( NZ ) ; Ha van lendülete
+        } else { ; Clear impulse
+            LD A, (DE)
+            CP 0
+            SOUNDS.diamond() if ( NZ )
+            LD A, 0
+            LD (DE), A
+        }
+        POP HL
+    }
+
+    ;;; Mágikus falra esett a DE, lendülettel, tehát átmehet rajta, ha HL alatt SPACE van
+    private check_magick( BC, DE, HL ) { ; BC a test régi pozíciója a képernyőn, HL az új, amiben a OBJECT_MAGICK_WALL[12]_CHAR van, DE a lendulet pointere
+            PUSH DE
+            LD DE, SHADOW_LINE_LENGTH
+            ADD HL, DE
+            POP DE
+            LD A, (HL)
+            if ( A == OBJECT_SPACE_CHAR ) {
+                LD (HL), OBJECT_STONE_CHAR
+                STONEGRAVITY.append( HL )
+                LD A, OBJECT_SPACE_CHAR
+                LD (BC), A
+                this.remove( BC )
+            } else {
+                LD A, 0
+                LD (DE), A          ; clear_impulse
+            }
+    }
+
+    private check_left_right( BC, DE, HL ) {          ; BC: régi cím, HL: új cím, DE: lendület címe
+        LD A, (DE)
+        CP 0
+        SOUNDS.diamond() if ( NZ )
+        LD A, 0
+        LD (DE), A   ; clear_impulse
+        DEC HL
+        LD A, (HL)
+        if ( A == OBJECT_SPACE_CHAR ) { ; Balra legördülhet
+            this.check_horizontal_move( BC, DE, HL )
+        } else {
+            INC HL
+            INC HL
+            LD A, (HL)
+            if ( A == OBJECT_SPACE_CHAR ) { ; Jobbra legördülhet
+                this.check_horizontal_move( BC, DE, HL )
+            }
+        }
+    }
+
+    private check_horizontal_move( BC, DE, HL ) { ; Balra vagy jobbra is legölrdülhet, de csak akkor, ha mellette is üres abban az irányban
+        PUSH HL
+        PUSH DE
+        LD DE, -SHADOW_LINE_LENGTH
+        ADD HL, DE
+        POP DE
+        LD A, (HL)
+        POP HL
+        CP OBJECT_SPACE_CHAR ; Legördül, azaz balra vagy jobbra lép
+        this.move_to( BC, DE, HL) if ( Z )
+    }
+
+    private move_to( BC, DE, HL) { ; BC a test régi pozíciója a pufferben, HL az új, DE a lendület mutatójának címe
+        LD (HL), OBJECT_DIAMOND1_CHAR
+        LD A, OBJECT_SPACE_CHAR
+        LD (BC), A
+
+        DEC DE
+        LD A, H
+        LD (DE), A
+
+        DEC DE
+        LD A, L
+        LD (DE), A
+    }
+
+}
