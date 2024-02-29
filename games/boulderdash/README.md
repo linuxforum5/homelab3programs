@@ -7,7 +7,9 @@ Különlegessége, hogy 16K-nál nagyobb gépen is a betötlés egy betöltő k�
 ## Betöltés
 A játék betöltéséhez 3 formátum is választható:
 - LOAD/BlouderDashTruck.T3.wav
+- LOAD/BlouderDashTruck.T3N.wav Az előző fájl javított WAV formátumban, ha az nem töltődne be, ezzel érdemes próbálkozni
 - LOAD/BlouderDashTruck.wav
+- LOAD/BlouderDashTruckN2.wav Az előző fájl javított WAV formátumban, ha az nem töltődne be, ezzel érdemes próbálkozni
 - LOAD/BoulderDashTruck.htp
 
 ### BlouderDashTruck.T3.wav
